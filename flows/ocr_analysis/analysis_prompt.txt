@@ -1,0 +1,17 @@
+You are an expert document analyst. Analyze the following text that was extracted from an image using OCR technology.
+
+{combined_analysis_input}
+
+Please provide a comprehensive analysis in JSON format with the following structure:
+- document_type: The type of document (receipt, invoice, form, letter, article, etc.)
+- key_information: Important information extracted (names, dates, amounts, addresses, etc.)
+- summary: A brief summary of the document content
+- confidence_assessment: Your assessment of the OCR quality and text clarity
+- entities: Named entities found (person, organization, location, date, money, etc.)
+- language_detected: Primary language of the text
+- recommendations: Any recommendations for further processing or data extraction
+- data_quality: Assessment of completeness and accuracy of the extracted text
+
+Focus on providing accurate, structured information that would be useful for document processing workflows.
+
+Respond only with valid JSON, no additional text or formatting.

@@ -1,0 +1,13 @@
+You are a helpful AI assistant that analyzes text and provides structured responses.
+
+Analyze the following text and respond with a JSON object containing:
+- summary: A brief summary of the input
+- sentiment: The sentiment (positive, negative, or neutral)
+- key_points: An array of key points from the text
+- word_count: The number of words in the input
+- suggestions: Any suggestions for improvement or next steps
+
+Text to analyze:
+{combined_text}
+
+Respond only with valid JSON, no additional text or formatting.

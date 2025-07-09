@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  app:
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=WARNING
+    volumes:
+      # Remove source code mount for production
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+
+  redis:
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+      # Add Redis configuration file in production
+      - ./redis.conf:/usr/local/etc/redis/redis.conf

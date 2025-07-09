@@ -1,0 +1,10 @@
+name: "OCR Analysis Flow"
+description: "Extract text from images using OCR and analyze with LLM"
+version: "1.0.0"
+author: "AI Platform Team"
+tags:
+  - ocr
+  - text-extraction
+  - image-processing
+  - llm-analysis
+category: "document-processing"

@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # Redis service for state management
+  redis:
+    image: redis:7-alpine
+    container_name: promptflow-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - promptflow-network
+
+  # AI Inference Platform application
+  app:
+    build: .
+    container_name: promptflow-app
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+    volumes:
+      # Mount source code for development (remove in production)
+      - .:/app
+      # Mount uploads directory
+      - ./uploads:/app/uploads
+      # Mount logs directory
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - promptflow-network
+    restart: unless-stopped
+
+  # Optional: Redis Commander for Redis management UI
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: promptflow-redis-ui
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - promptflow-network
+    profiles:
+      - tools
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  promptflow-network:
+    driver: bridge

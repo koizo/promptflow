@@ -1,0 +1,30 @@
+name: sample_flow
+inputs:
+  - name: text_input
+    type: text
+    required: true
+    description: "Input text to process"
+  - name: user_note
+    type: text
+    required: false
+    description: "Optional user note"
+
+steps:
+  - type: combine
+    template: |
+      Input Text: {text_input}
+      User Note: {user_note}
+      Processing timestamp: {timestamp}
+    output_key: combined_text
+  
+  - type: llm
+    model: mistral
+    provider: ollama
+    temperature: 0.7
+    prompt_file: prompt.txt
+    input: combined_text
+    output_key: processed_result
+
+output:
+  key: processed_result
+  format: json
