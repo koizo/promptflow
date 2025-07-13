@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 # Create Celery app
 celery_app = Celery('ai_inference_platform')
 
+# Worker initialization flag
+_worker_initialized = False
+
 # Configure Celery with Redis
 celery_app.conf.update(
     # Use Redis as broker and result backend
@@ -53,6 +56,22 @@ celery_app.conf.update(
 )
 
 
+async def initialize_worker():
+    """Initialize worker with proper state store connection"""
+    global _worker_initialized
+    if not _worker_initialized:
+        try:
+            # Initialize the flow runner's state store
+            if flow_runner.redis_enabled and flow_runner.state_store:
+                await flow_runner.state_store.initialize()
+                logger.info("✅ Celery worker StateStore initialized")
+            _worker_initialized = True
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize worker StateStore: {e}")
+            # Don't raise - allow worker to continue without Redis state management
+            flow_runner.redis_enabled = False
+
+
 @celery_app.task(bind=True, autoretry_for=(Exception,))
 def execute_flow_async(self, flow_name: str, inputs: Dict[str, Any], flow_id: str, callback_url: Optional[str] = None):
     """
@@ -70,9 +89,12 @@ def execute_flow_async(self, flow_name: str, inputs: Dict[str, Any], flow_id: st
     logger.info(f"🚀 Starting async execution: {flow_id} ({flow_name})")
     
     try:
-        # Update status from "queued" to "running" when worker starts processing
+        # Initialize worker if not already done
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        
+        # Ensure worker is properly initialized
+        loop.run_until_complete(initialize_worker())
         
         try:
             # Update flow state to "running" status
