@@ -48,35 +48,37 @@ inputs:
 
 # Flow execution steps
 steps:
-  - name: "handle_image"
-    executor: "image_handler"
-    description: "Handle uploaded image and optimize for OCR"
+  - name: "handle_file"
+    executor: "file_handler"
+    description: "Handle uploaded image file and create temporary storage"
     config:
-      image_path: "{{ inputs.file.temp_path }}"
+      file_content: "{{ inputs.file.content }}"
+      filename: "{{ inputs.file.filename }}"
       save_temp: true
       validate_format: true
-      enhance_contrast: "{{ inputs.enhance_image }}"
-      convert_grayscale: false
-      resize: [2048, 2048]  # Max dimensions for OCR
-      output_format: "PNG"
-      quality: 95
+      allowed_formats: [".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp", ".gif"]
+      max_size: 10485760  # 10MB
     outputs:
       - "temp_path"
-      - "processed_format"
-      - "processed_size"
-      - "processing_steps"
+      - "filename"
+      - "file_extension"
 
   - name: "extract_text"
     executor: "ocr_processor"
-    depends_on: ["handle_image"]
-    description: "Extract text from image using OCR"
+    depends_on: ["handle_file"]
+    description: "Extract text directly from original image using OCR"
     config:
-      image_path: "{{ steps.handle_image.temp_path }}"
+      image_path: "{{ steps.handle_file.temp_path }}"
       provider: "{{ inputs.ocr_provider }}"
       languages: "{{ inputs.languages }}"
-      confidence_threshold: 0.5
-      preprocess: true
+      confidence_threshold: 0.0
+      return_bboxes: true
+      return_confidence: true
     outputs:
+      - "text"
+      - "confidence"
+      - "word_count"
+      - "provider"
       - "text"
       - "confidence"
       - "word_count"
@@ -86,15 +88,13 @@ steps:
     executor: "llm_analyzer"
     depends_on: ["extract_text"]
     description: "Analyze extracted text using LLM"
-    condition: "{{ steps.extract_text.text | length > 0 }}"
     config:
       text: "{{ steps.extract_text.text }}"
-      prompt: "{{ _get_analysis_prompt(inputs.analysis_type, inputs.custom_prompt) }}"
+      prompt: "Analyze the following text extracted from an image using OCR. Provide insights about the content, structure, and any important information: {{ steps.extract_text.text }}"
       model: "{{ inputs.llm_model }}"
       provider: "ollama"
     outputs:
       - "analysis"
-      - "analysis_type"
 
   - name: "format_response"
     executor: "response_formatter"
@@ -106,17 +106,19 @@ steps:
       include_steps: true
       custom_fields:
         flow: "ocr_analysis"
-        image_file: "{{ inputs.file.filename }}"
+        image_file: "{{ steps.handle_file.filename }}"
+        image_extension: "{{ steps.handle_file.file_extension }}"
         ocr_provider: "{{ inputs.ocr_provider }}"
         languages: "{{ inputs.languages }}"
         extracted_text: "{{ steps.extract_text.text }}"
         ocr_confidence: "{{ steps.extract_text.confidence }}"
         word_count: "{{ steps.extract_text.word_count }}"
+        analysis: "{{ steps.analyze_content.analysis }}"
+        llm_model: "{{ inputs.llm_model }}"
+        word_count: "{{ steps.extract_text.word_count }}"
         analysis_type: "{{ inputs.analysis_type }}"
         analysis: "{{ steps.analyze_content.analysis }}"
         llm_model: "{{ inputs.llm_model }}"
-        image_enhanced: "{{ inputs.enhance_image }}"
-        processing_applied: "{{ steps.handle_image.processing_steps }}"
 
 # Output schema - defines what the API returns
 outputs:

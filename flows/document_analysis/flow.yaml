@@ -71,16 +71,12 @@ steps:
     depends_on: ["extract_text"]
     description: "Analyze extracted text using LLM"
     config:
-      text: "{{ steps.extract_text.text if not steps.extract_text.chunked else '' }}"
-      chunks: "{{ steps.extract_text.chunks if steps.extract_text.chunked else [] }}"
+      text: "{{ steps.extract_text.text }}"
       prompt: "{{ inputs.analysis_prompt }}"
       model: "{{ inputs.llm_model }}"
       provider: "ollama"
-      combine_chunks: true
     outputs:
       - "analysis"
-      - "chunk_analyses"
-      - "combined_analysis"
 
   - name: "format_response"
     executor: "response_formatter"
@@ -96,10 +92,8 @@ steps:
         file_extension: "{{ steps.handle_file.file_extension }}"
         provider: "{{ inputs.provider }}"
         chunked: "{{ steps.extract_text.chunked }}"
-        total_chunks: "{{ steps.extract_text.total_chunks }}"
-        extracted_text: "{{ steps.extract_text.text }}"
-        analysis: "{{ steps.analyze_content.combined_analysis if steps.extract_text.chunked else steps.analyze_content.analysis }}"
-        chunk_analyses: "{{ steps.analyze_content.chunk_analyses if steps.extract_text.chunked else [] }}"
+        extracted_text_length: "{{ steps.extract_text.text | length }}"
+        analysis: "{{ steps.analyze_content.analysis }}"
         llm_model: "{{ inputs.llm_model }}"
         analysis_prompt: "{{ inputs.analysis_prompt }}"
 

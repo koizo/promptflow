@@ -19,7 +19,8 @@ class TesseractProvider(BaseOCRProvider):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.tesseract_cmd = config.get("tesseract_cmd")  # Custom tesseract path
-        self.default_config = config.get("tesseract_config", "--oem 3 --psm 6")
+        # Use PSM 11 for sparse text and lower confidence threshold
+        self.default_config = config.get("tesseract_config", "--oem 3 --psm 11")
         
         # Set environment variables for Tesseract
         if not os.environ.get('TESSDATA_PREFIX'):
@@ -95,8 +96,8 @@ class TesseractProvider(BaseOCRProvider):
                     if text:  # Only include non-empty text
                         confidence = float(data['conf'][i]) / 100.0  # Convert to 0-1 scale
                         
-                        # Skip very low confidence results
-                        if confidence < 0.1:
+                        # Skip very low confidence results (lowered threshold)
+                        if confidence < 0.05:
                             continue
                         
                         bbox = OCRBoundingBox(

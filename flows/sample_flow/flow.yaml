@@ -35,7 +35,7 @@ steps:
     description: "Process input text with LLM"
     config:
       text: "{{ inputs.input_text }}"
-      prompt: "{{ _get_processing_prompt(inputs.processing_type) }}"
+      prompt: "Analyze the following text and provide insights: {{ inputs.input_text }}"
       model: "{{ inputs.llm_model }}"
       provider: "ollama"
     outputs:
@@ -61,16 +61,15 @@ steps:
     depends_on: ["combine_results"]
     description: "Format final response"
     config:
-      template: "{{ 'detailed' if inputs.include_metadata else 'minimal' }}"
-      include_metadata: "{{ inputs.include_metadata }}"
-      include_steps: "{{ inputs.include_metadata }}"
+      template: "detailed"
+      include_metadata: true
+      include_steps: true
       success_message: "Sample flow completed successfully!"
       custom_fields:
         flow: "sample_flow"
         processing_type: "{{ inputs.processing_type }}"
         original_text: "{{ inputs.input_text }}"
         processed_result: "{{ steps.process_input.analysis }}"
-        text_length: "{{ steps.process_input.text_length }}"
         llm_model_used: "{{ inputs.llm_model }}"
 
 # Output schema - defines what the API returns
@@ -98,19 +97,6 @@ outputs:
   - name: "processing_type"
     value: "{{ inputs.processing_type }}"
     description: "Type of processing performed"
-
-# Helper functions for dynamic prompt generation
-functions:
-  _get_processing_prompt:
-    description: "Generate processing prompt based on type"
-    implementation: |
-      def _get_processing_prompt(processing_type):
-          prompts = {
-              "analysis": "Analyze the following text and provide insights:",
-              "summary": "Provide a concise summary of the following text:",
-              "enhancement": "Improve and enhance the following text while maintaining its original meaning:"
-          }
-          return prompts.get(processing_type, prompts["analysis"])
 
 # Flow configuration
 config:

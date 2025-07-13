@@ -1,17 +1,12 @@
 """
-OCR Processor Executor
-
-Reusable executor for extracting text from images using OCR.
-Uses existing OCR providers (Tesseract, TrOCR) and supports
-multiple languages and image formats.
+OCR Processor Executor - Extract text from images using OCR
 """
-
-from typing import Dict, Any, List
-from pathlib import Path
 import logging
+from typing import Dict, Any, Optional
+from pathlib import Path
 
 from .base_executor import BaseExecutor, ExecutionResult, FlowContext
-from ..ocr.ocr_manager import OCRManager
+from ..ocr.ocr_manager import ocr_manager
 
 logger = logging.getLogger(__name__)
 
@@ -20,39 +15,36 @@ class OCRProcessor(BaseExecutor):
     """
     Extract text from images using Optical Character Recognition.
     
-    Supports multiple OCR providers (Tesseract, TrOCR) and languages.
-    Can process various image formats and provide confidence scores.
+    This executor uses the original working OCR implementation that was
+    functioning before the executor-based architecture changes.
     """
     
     def __init__(self, name: str = None):
         super().__init__(name)
-        self.ocr_manager = None
-    
-    def _get_ocr_manager(self) -> OCRManager:
-        """Get or create OCR manager."""
-        if self.ocr_manager is None:
-            self.ocr_manager = OCRManager()
-        return self.ocr_manager
+        self.logger = logging.getLogger(f"executor.{self.name.lower()}")
     
     async def execute(self, context: FlowContext, config: Dict[str, Any]) -> ExecutionResult:
         """
-        Extract text from image using OCR.
+        Execute OCR text extraction from image.
         
         Config parameters:
         - image_path (required): Path to image file
-        - provider (optional): OCR provider ('tesseract', 'huggingface')
-        - languages (optional): List of languages for OCR (default: ['en'])
-        - confidence_threshold (optional): Minimum confidence for text extraction
-        - preprocess (optional): Whether to preprocess image (default: True)
+        - provider (optional): OCR provider to use (default: "tesseract")
+        - languages (optional): Languages for OCR (default: ["en"])
+        - return_bboxes (optional): Return bounding boxes (default: True)
+        - return_confidence (optional): Return confidence scores (default: True)
+        - confidence_threshold (optional): Minimum confidence threshold (default: 0.0)
         """
         try:
+            # Get image path
             image_path = config.get('image_path')
             if not image_path:
                 return ExecutionResult(
                     success=False,
-                    error="image_path is required for OCR processing"
+                    error="image_path is required"
                 )
             
+            # Validate image exists
             image_path = Path(image_path)
             if not image_path.exists():
                 return ExecutionResult(
@@ -60,82 +52,71 @@ class OCRProcessor(BaseExecutor):
                     error=f"Image file not found: {image_path}"
                 )
             
-            # Get configuration
+            # Get configuration - using the original working parameters
             provider = config.get('provider', 'tesseract')
             languages = config.get('languages', ['en'])
+            return_bboxes = config.get('return_bboxes', True)
+            return_confidence = config.get('return_confidence', True)
             confidence_threshold = config.get('confidence_threshold', 0.0)
-            preprocess = config.get('preprocess', True)
             
-            ocr_manager = self._get_ocr_manager()
+            # Ensure languages is a list
+            if isinstance(languages, str):
+                languages = [languages]
             
-            # Check if provider is available
-            if not ocr_manager.is_provider_available(provider):
-                available_providers = ocr_manager.get_available_providers()
-                return ExecutionResult(
-                    success=False,
-                    error=f"OCR provider '{provider}' not available. Available: {available_providers}"
-                )
+            self.logger.info(f"Processing image {image_path} with {provider} OCR, languages: {languages}")
             
-            # Check supported formats
-            supported_formats = ocr_manager.get_supported_formats(provider)
-            file_extension = image_path.suffix.lower()
-            if file_extension not in supported_formats:
-                return ExecutionResult(
-                    success=False,
-                    error=f"Image format {file_extension} not supported by {provider}. Supported: {supported_formats}"
-                )
-            
-            self.logger.info(f"Processing image {image_path} with {provider} OCR")
-            
-            # Perform OCR
-            ocr_result = await ocr_manager.extract_text(
+            # Perform OCR using the original working method
+            response = await ocr_manager.extract_text(
                 image_path=str(image_path),
                 provider=provider,
                 languages=languages,
-                preprocess=preprocess
+                return_bboxes=return_bboxes,
+                return_confidence=return_confidence
             )
             
             # Filter by confidence if threshold is set
-            filtered_text = ocr_result.text
-            filtered_words = []
-            
-            if confidence_threshold > 0.0 and hasattr(ocr_result, 'word_confidences'):
-                # Filter words by confidence
-                words = ocr_result.text.split()
-                confidences = ocr_result.word_confidences or []
-                
-                filtered_words = [
-                    word for word, conf in zip(words, confidences)
-                    if conf >= confidence_threshold
+            filtered_text = response.full_text
+            if confidence_threshold > 0.0 and response.text_blocks:
+                # Filter text blocks by confidence
+                filtered_blocks = [
+                    block for block in response.text_blocks
+                    if block.confidence >= confidence_threshold
                 ]
-                filtered_text = ' '.join(filtered_words)
+                filtered_text = ' '.join([block.text for block in filtered_blocks])
+            
+            # Post-process the text to make it more coherent for LLM analysis
+            cleaned_text = self._clean_ocr_text(filtered_text)
             
             # Calculate statistics
-            total_words = len(ocr_result.text.split()) if ocr_result.text else 0
-            filtered_word_count = len(filtered_words) if filtered_words else total_words
+            total_words = len(response.full_text.split()) if response.full_text else 0
+            filtered_word_count = len(cleaned_text.split()) if cleaned_text else 0
+            
+            self.logger.info(f"OCR completed: {len(response.text_blocks)} blocks, avg confidence: {response.confidence_avg:.2f}")
             
             return ExecutionResult(
                 success=True,
                 outputs={
-                    "text": filtered_text,
-                    "original_text": ocr_result.text,
-                    "confidence": ocr_result.confidence,
+                    "text": cleaned_text,
+                    "original_text": response.full_text,
+                    "raw_ocr_text": filtered_text,
+                    "confidence": response.confidence_avg,
                     "word_count": filtered_word_count,
                     "total_words": total_words,
                     "provider": provider,
                     "languages": languages,
                     "image_file": image_path.name,
                     "confidence_threshold": confidence_threshold,
-                    "preprocessing_applied": preprocess
+                    "text_blocks_count": len(response.text_blocks)
                 },
                 metadata={
                     "ocr_provider": provider,
                     "languages_used": languages,
                     "image_processed": str(image_path),
-                    "extraction_confidence": ocr_result.confidence,
+                    "extraction_confidence": response.confidence_avg,
                     "character_count": len(filtered_text),
                     "words_extracted": filtered_word_count,
-                    "confidence_filtering": confidence_threshold > 0.0
+                    "total_text_blocks": len(response.text_blocks),
+                    "processing_time": response.processing_time
                 }
             )
             
@@ -146,77 +127,50 @@ class OCRProcessor(BaseExecutor):
                 error=f"OCR processing failed: {str(e)}"
             )
     
-    def get_required_config_keys(self) -> List[str]:
-        """Required configuration keys."""
-        return ["image_path"]
-    
-    def get_optional_config_keys(self) -> List[str]:
-        """Optional configuration keys."""
-        return [
-            "provider",
-            "languages",
-            "confidence_threshold",
-            "preprocess"
-        ]
-    
-    def validate_config(self, config: Dict[str, Any]) -> None:
-        """Validate executor configuration."""
-        super().validate_config(config)
+    def _clean_ocr_text(self, text: str) -> str:
+        """
+        Clean and post-process OCR text to make it more coherent for LLM analysis.
         
-        # Validate languages is list
-        if 'languages' in config:
-            languages = config['languages']
-            if not isinstance(languages, list):
-                raise ValueError("languages must be a list")
-            
-            for lang in languages:
-                if not isinstance(lang, str):
-                    raise ValueError("All language codes must be strings")
+        This method provides generic text cleaning:
+        1. Removes excessive line breaks and whitespace
+        2. Filters out likely OCR artifacts (single characters, symbols)
+        3. Joins meaningful text elements
+        4. Preserves important structure while improving readability
+        """
+        if not text:
+            return ""
         
-        # Validate confidence_threshold is float between 0 and 1
-        if 'confidence_threshold' in config:
-            threshold = config['confidence_threshold']
-            if not isinstance(threshold, (int, float)) or threshold < 0.0 or threshold > 1.0:
-                raise ValueError("confidence_threshold must be a number between 0.0 and 1.0")
+        import re
         
-        # Validate preprocess is boolean
-        if 'preprocess' in config and not isinstance(config['preprocess'], bool):
-            raise ValueError("preprocess must be a boolean")
+        # Split into lines and clean each line
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
         
-        # Validate provider
-        if 'provider' in config:
-            provider = config['provider']
-            valid_providers = ['tesseract', 'huggingface']
-            if provider not in valid_providers:
-                raise ValueError(f"provider must be one of: {valid_providers}")
-    
-    def get_supported_providers(self) -> List[str]:
-        """Get list of supported OCR providers."""
-        ocr_manager = self._get_ocr_manager()
-        return ocr_manager.get_available_providers()
-    
-    def get_supported_languages(self, provider: str = 'tesseract') -> List[str]:
-        """Get list of supported languages for a provider."""
-        ocr_manager = self._get_ocr_manager()
-        return ocr_manager.get_supported_languages(provider)
-    
-    def get_info(self) -> Dict[str, Any]:
-        """Get executor information."""
-        info = super().get_info()
-        info.update({
-            "capabilities": [
-                "Text extraction from images",
-                "Multiple OCR provider support",
-                "Multi-language text recognition",
-                "Confidence-based filtering",
-                "Image preprocessing",
-                "Format validation"
-            ],
-            "supported_providers": self.get_supported_providers(),
-            "supported_formats": [".jpg", ".jpeg", ".png", ".tiff", ".bmp", ".gif"],
-            "supported_languages": {
-                "tesseract": ["en", "es", "fr", "de", "pt", "it", "ru", "zh", "ja", "ko"],
-                "huggingface": ["en", "multilingual"]
-            }
-        })
-        return info
+        # Filter out likely OCR artifacts while preserving meaningful content
+        meaningful_lines = []
+        for line in lines:
+            # Keep lines that are:
+            # - More than 2 characters (likely real words/phrases)
+            # - Numbers (years, quantities, etc.)
+            # - Important single characters with context (like "D." for titles)
+            # - Copyright and other important symbols
+            if (len(line) > 2 or 
+                line.isdigit() or 
+                re.match(r'^[A-Z]\.$', line) or  # Single letter with period (titles, initials)
+                line in ['©', '®', '™', '&']):  # Important symbols
+                meaningful_lines.append(line)
+        
+        # Join meaningful lines with spaces, preserving some structure
+        cleaned_text = ' '.join(meaningful_lines)
+        
+        # Basic cleanup
+        cleaned_text = re.sub(r'\s+', ' ', cleaned_text)  # Multiple spaces to single
+        cleaned_text = cleaned_text.strip()
+        
+        # If cleaning removed too much content, fall back to basic cleanup
+        if not cleaned_text or len(cleaned_text) < len(text) * 0.3:
+            # Basic cleanup only - just remove excessive line breaks
+            basic_cleaned = re.sub(r'\n+', ' ', text)  # Replace line breaks with spaces
+            basic_cleaned = re.sub(r'\s+', ' ', basic_cleaned)  # Multiple spaces to single
+            return basic_cleaned.strip()
+        
+        return cleaned_text

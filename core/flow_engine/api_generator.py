@@ -95,30 +95,37 @@ class FlowAPIGenerator:
     def _add_file_upload_endpoint(self, router: APIRouter, flow_def: FlowDefinition):
         """Add file upload endpoint for flows that accept files."""
         
+        # Get non-file inputs for form parameters
+        form_inputs = [inp for inp in flow_def.inputs if inp.type != "file"]
+        
         @router.post(f"/execute", 
                     summary=f"Execute {flow_def.name} flow",
                     description=flow_def.description,
                     response_model=Dict[str, Any])
         async def execute_flow_with_file(
             file: UploadFile = File(..., description="File to process"),
-            **form_params
+            analysis_prompt: str = Form(default="Analyze this document and provide insights"),
+            provider: str = Form(default="langchain"),
+            llm_model: str = Form(default="mistral"),
+            chunk_text: bool = Form(default=False)
         ):
             try:
-                # Read file content
+                # Read file content as bytes
                 file_content = await file.read()
                 
-                # Prepare inputs
+                # Prepare inputs with proper file structure
                 inputs = {
                     "file": {
                         "content": file_content,
                         "filename": file.filename,
                         "content_type": file.content_type,
                         "size": len(file_content)
-                    }
+                    },
+                    "analysis_prompt": analysis_prompt,
+                    "provider": provider,
+                    "llm_model": llm_model,
+                    "chunk_text": chunk_text if isinstance(chunk_text, bool) else chunk_text.lower() == 'true'
                 }
-                
-                # Add form parameters
-                inputs.update(form_params)
                 
                 # Validate inputs against flow definition
                 validated_inputs = self._validate_inputs(inputs, flow_def)

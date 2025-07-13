@@ -103,6 +103,25 @@ class OCRManager:
         """Get list of available providers"""
         return list(self.providers.keys())
     
+    def get_supported_formats(self, provider_name: str = "tesseract") -> List[str]:
+        """Get supported image formats for a provider"""
+        try:
+            provider = self.get_provider(provider_name)
+            # Most OCR providers support these common image formats
+            return [".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp", ".gif"]
+        except Exception as e:
+            logger.error(f"Failed to get supported formats: {e}")
+            return [".jpg", ".jpeg", ".png"]
+    
+    def supports_format(self, file_extension: str, provider_name: str = "tesseract") -> bool:
+        """Check if a file format is supported by the provider"""
+        try:
+            supported_formats = self.get_supported_formats(provider_name)
+            return file_extension.lower() in [fmt.lower() for fmt in supported_formats]
+        except Exception as e:
+            logger.error(f"Format support check failed: {e}")
+            return file_extension.lower() in [".jpg", ".jpeg", ".png"]
+    
     def validate_image_format(self, file_path: str, provider: str = "huggingface") -> bool:
         """Validate image format for specified provider"""
         try:

@@ -98,11 +98,35 @@ class TemplateEngine:
         
         Handles strings, dictionaries, lists, and nested structures.
         Only processes strings that contain template syntax.
+        Special handling for binary data and boolean values to preserve their types.
         """
         if isinstance(value, str):
             # Only process strings that contain template syntax
             if self._has_template_syntax(value):
-                return self.render_template(value, context)
+                # Special handling for file content templates
+                if value.strip() == "{{ inputs.file.content }}":
+                    # Return the actual bytes object, not its string representation
+                    try:
+                        return context.get('inputs', {}).get('file', {}).get('content')
+                    except (AttributeError, KeyError):
+                        pass
+                # Special handling for boolean templates
+                elif value.strip().startswith("{{ inputs.") and value.strip().endswith(" }}"):
+                    # Extract the variable path
+                    var_path = value.strip()[2:-2].strip()  # Remove {{ and }}
+                    try:
+                        # Navigate the context to get the actual value
+                        parts = var_path.split('.')
+                        result = context
+                        for part in parts:
+                            result = result[part]
+                        # Return the actual value (preserving type)
+                        return result
+                    except (KeyError, TypeError):
+                        # Fall back to normal template rendering
+                        return self.render_template(value, context)
+                else:
+                    return self.render_template(value, context)
             return value
         elif isinstance(value, dict):
             return {k: self.render_value(v, context) for k, v in value.items()}
