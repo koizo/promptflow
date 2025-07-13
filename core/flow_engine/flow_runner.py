@@ -17,6 +17,7 @@ from .yaml_loader import YAMLFlowLoader, FlowDefinition, FlowStep
 from .template_engine import TemplateEngine
 from .context_manager import ContextManager, FlowExecution
 from ..executors.base_executor import BaseExecutor, ExecutionResult, FlowContext
+from .api_generator import FlowAPIGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,7 @@ class FlowRunner:
         self.template_engine = TemplateEngine()
         self.context_manager = ContextManager()
         self.executor_registry = ExecutorRegistry()
+        self.api_generator = FlowAPIGenerator(self)
         
         # Load flows
         self.flows: Dict[str, FlowDefinition] = {}
@@ -355,6 +357,18 @@ class FlowRunner:
     def get_context_manager(self) -> ContextManager:
         """Get the context manager."""
         return self.context_manager
+    
+    def get_api_generator(self) -> FlowAPIGenerator:
+        """Get the API generator."""
+        return self.api_generator
+    
+    def generate_api_routers(self) -> List:
+        """Generate FastAPI routers for all flows."""
+        return self.api_generator.generate_all_routers()
+    
+    def generate_router_for_flow(self, flow_name: str):
+        """Generate FastAPI router for a specific flow."""
+        return self.api_generator.generate_router_for_flow(flow_name)
 
 
 # Global flow runner instance

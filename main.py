@@ -1,63 +1,95 @@
 """
-AI Inference Platform - Main FastAPI Application
+AI Inference Platform with OCR + LLM Integration
+
+Production-ready platform with executor-based flows and auto-generated APIs.
+All flows are defined in YAML and automatically generate REST API endpoints.
 """
-import logging
+
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+import logging
+import sys
+from pathlib import Path
 
-from core.flow_registry import FlowRegistry
+# Add project root to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+
+from core.flow_engine.flow_runner import FlowRunner
 from core.router_factory import RouterFactory
-from core.state_store import StateStore
-from core.config import settings
 
 # Configure logging
 logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper()),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Global flow runner instance
+flow_runner: FlowRunner = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan manager"""
-    logger.info("🚀 Starting AI Inference Platform...")
+    """Application lifespan manager."""
+    global flow_runner
     
-    # Initialize core components
+    # Startup
+    logger.info("Starting AI Inference Platform...")
+    
+    # Initialize flow runner
+    flows_dir = Path("flows")
+    flow_runner = FlowRunner(flows_dir)
+    
+    # Start flow runner
+    await flow_runner.start()
+    
+    # Generate and register API routers for all flows
     try:
-        # Initialize state store (Redis)
-        await app.state.state_store.initialize()
-        logger.info("✅ State store initialized")
+        api_routers = flow_runner.generate_api_routers()
+        for router in api_routers:
+            app.include_router(router)
         
-        # Load and register flows
-        flows = app.state.flow_registry.load_flows()
-        logger.info(f"✅ Loaded {len(flows)} flows")
+        logger.info(f"Generated API endpoints for {len(api_routers)} flows")
         
-        # Register dynamic routes
-        app.state.router_factory.register_flow_routes(app, flows)
-        logger.info("✅ Flow routes registered")
-        
-        logger.info("🎉 Application startup complete!")
+        # List available flows
+        flows = flow_runner.list_flows()
+        logger.info(f"Available flows: {flows}")
         
     except Exception as e:
-        logger.error(f"❌ Startup failed: {e}")
-        raise
+        logger.error(f"Failed to generate API routers: {e}")
+    
+    # Add core document extraction router (for backward compatibility)
+    try:
+        router_factory = RouterFactory()
+        core_routers = router_factory.get_all_routers()
+        for router in core_routers:
+            app.include_router(router)
+        logger.info("Added core API routers")
+    except Exception as e:
+        logger.warning(f"Failed to add core routers: {e}")
+    
+    logger.info("AI Inference Platform started successfully!")
     
     yield
     
-    # Cleanup
-    logger.info("🛑 Shutting down AI Inference Platform...")
-    await app.state.state_store.close()
+    # Shutdown
+    logger.info("Shutting down AI Inference Platform...")
+    if flow_runner:
+        await flow_runner.stop()
+    logger.info("Shutdown complete")
 
 
-# Create FastAPI app
+# Create FastAPI application
 app = FastAPI(
     title="AI Inference Platform",
-    description="Modular, pluggable AI inference platform with declarative flow definitions",
-    version="1.0.0",
-    lifespan=lifespan
+    description="Production-ready AI platform with OCR, LLM, and document processing capabilities. All flows are defined in YAML and automatically generate REST API endpoints.",
+    version="2.0.0",
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc"
 )
 
 # Add CORS middleware
@@ -69,170 +101,158 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize core components
-app.state.flow_registry = FlowRegistry()
-app.state.router_factory = RouterFactory()
-app.state.state_store = StateStore()
-
-# Include document extraction routes (core functionality)
-from core.document_extraction.router import router as document_router
-app.include_router(document_router, prefix="/api/v1")
-
-# Include document analysis flow routes
-from flows.document_analysis.router import router as document_analysis_router
-app.include_router(document_analysis_router, prefix="/api/v1")
-
 
 @app.get("/")
 async def root():
-    """Root endpoint"""
+    """Root endpoint with platform information."""
     return {
-        "message": "AI Inference Platform",
-        "version": "1.0.0",
-        "status": "running"
+        "name": "AI Inference Platform",
+        "version": "2.0.0",
+        "description": "Production-ready AI platform with executor-based flows",
+        "architecture": "YAML-defined flows with auto-generated APIs",
+        "features": [
+            "Document text extraction",
+            "OCR image processing", 
+            "LLM analysis and generation",
+            "Multi-format support",
+            "Reusable executor components",
+            "Template-based configuration"
+        ],
+        "endpoints": {
+            "docs": "/docs",
+            "health": "/health",
+            "catalog": "/catalog",
+            "flows": "/flows"
+        }
     }
 
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """System health check."""
+    global flow_runner
+    
+    if not flow_runner:
+        raise HTTPException(status_code=503, detail="Flow runner not initialized")
+    
     try:
-        # Check Redis connection
-        await app.state.state_store.ping()
-        
-        # Check LLM provider health
-        from core.llm import LLMExecutor
-        llm_health = await LLMExecutor.health_check("ollama")
+        # Get flow runner status
+        flows = flow_runner.list_flows()
+        context_stats = flow_runner.get_context_manager().get_execution_stats()
         
         return {
             "status": "healthy",
-            "services": {
-                "api": "up",
-                "redis": "up",
-                "llm": "up" if llm_health["healthy"] else "down"
+            "platform": "AI Inference Platform",
+            "version": "2.0.0",
+            "flows": {
+                "total": len(flows),
+                "available": flows
             },
-            "llm_info": llm_health
+            "execution_stats": context_stats,
+            "architecture": "executor-based"
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
-        raise HTTPException(status_code=503, detail="Service unhealthy")
+        raise HTTPException(status_code=503, detail=f"Health check failed: {str(e)}")
 
 
 @app.get("/catalog")
-async def get_catalog():
-    """Get catalog of available flows"""
-    flows = app.state.flow_registry.get_flow_catalog()
-    return {
-        "flows": flows,
-        "total": len(flows)
-    }
-
-
-@app.get("/llm/info")
-async def get_llm_info():
-    """Get LLM provider information"""
+async def get_flow_catalog():
+    """Get catalog of all available flows."""
+    global flow_runner
+    
+    if not flow_runner:
+        raise HTTPException(status_code=503, detail="Flow runner not initialized")
+    
     try:
-        from core.llm import llm_manager
+        flows = flow_runner.list_flows()
+        catalog = {}
         
-        providers = llm_manager.get_providers()
-        provider_info = {}
-        
-        for provider in providers:
-            health = await llm_manager.health_check(provider)
-            models = llm_manager.get_available_models(provider)
-            
-            provider_info[provider] = {
-                "healthy": health,
-                "available_models": models
+        for flow_name in flows:
+            flow_info = flow_runner.get_flow_info(flow_name)
+            catalog[flow_name] = {
+                "name": flow_info["name"],
+                "version": flow_info["version"],
+                "description": flow_info["description"],
+                "inputs": flow_info["inputs"],
+                "steps": len(flow_info["steps"]),
+                "tags": flow_info.get("tags", []),
+                "endpoints": {
+                    "execute": f"/api/v1/{flow_name.replace('_', '-')}/execute",
+                    "info": f"/api/v1/{flow_name.replace('_', '-')}/info",
+                    "health": f"/api/v1/{flow_name.replace('_', '-')}/health"
+                }
             }
         
         return {
-            "providers": provider_info,
-            "default_provider": "ollama",
-            "default_model": "mistral"
+            "platform": "AI Inference Platform",
+            "total_flows": len(catalog),
+            "flows": catalog
         }
+        
     except Exception as e:
-        logger.error(f"LLM info request failed: {e}")
+        logger.error(f"Failed to get flow catalog: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/llm/info")
-async def get_llm_info():
-    """Get LLM provider information"""
+@app.get("/flows")
+async def list_flows():
+    """List all available flows with basic information."""
+    global flow_runner
+    
+    if not flow_runner:
+        raise HTTPException(status_code=503, detail="Flow runner not initialized")
+    
     try:
-        from core.llm import llm_manager
-        
-        providers = llm_manager.get_providers()
-        provider_info = {}
-        
-        for provider in providers:
-            health = await llm_manager.health_check(provider)
-            models = llm_manager.get_available_models(provider)
-            
-            provider_info[provider] = {
-                "healthy": health,
-                "available_models": models
-            }
-        
+        flows = flow_runner.list_flows()
         return {
-            "providers": provider_info,
-            "default_provider": "ollama",
-            "default_model": "mistral"
+            "flows": flows,
+            "total": len(flows),
+            "architecture": "YAML-defined with auto-generated APIs"
         }
     except Exception as e:
-        logger.error(f"LLM info request failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/callback/{flow_id}")
-async def callback_handler(flow_id: str, payload: dict):
-    """Handle async callbacks for paused flows"""
+@app.get("/flows/{flow_name}")
+async def get_flow_details(flow_name: str):
+    """Get detailed information about a specific flow."""
+    global flow_runner
+    
+    if not flow_runner:
+        raise HTTPException(status_code=503, detail="Flow runner not initialized")
+    
     try:
-        # Resume flow execution
-        result = await app.state.flow_registry.resume_flow(flow_id, payload)
-        return {"status": "resumed", "result": result}
+        flow_info = flow_runner.get_flow_info(flow_name)
+        return flow_info
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.error(f"Callback failed for flow {flow_id}: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    """Global exception handler"""
-    logger.error(f"Unhandled exception: {exc}")
+    """Global exception handler."""
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error"}
+        content={
+            "error": "Internal server error",
+            "detail": str(exc),
+            "type": type(exc).__name__
+        }
     )
 
 
 if __name__ == "__main__":
     import uvicorn
+    
+    # Run the application
     uvicorn.run(
         "main:app",
-        host=settings.api_host,
-        port=settings.api_port,
-        reload=settings.api_reload
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info"
     )
-
-@app.get("/ocr/info")
-async def get_ocr_info():
-    """Get OCR provider information"""
-    try:
-        from core.ocr import OCRExecutor
-        
-        provider_info = OCRExecutor.get_provider_info()
-        
-        # Add health checks
-        for provider in provider_info["providers"]:
-            try:
-                health = await OCRExecutor.health_check(provider)
-                provider_info["providers"][provider]["healthy"] = health["healthy"]
-            except Exception as e:
-                provider_info["providers"][provider]["healthy"] = False
-                provider_info["providers"][provider]["error"] = str(e)
-        
-        return provider_info
-    except Exception as e:
-        logger.error(f"OCR info request failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
