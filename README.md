@@ -110,6 +110,7 @@ config:
 ### AI Processing
 - **OCRProcessor** - Optical Character Recognition
 - **WhisperProcessor** - Speech-to-text transcription (Local, OpenAI, HuggingFace)
+- **SentimentAnalyzer** - Sentiment and emotion analysis (HuggingFace, LLM)
 - **LLMAnalyzer** - Large Language Model analysis
 
 ### Utility
@@ -147,6 +148,129 @@ steps:
 - `POST /api/v1/my-flow/execute`
 - `GET /api/v1/my-flow/info`
 - `GET /api/v1/my-flow/health`
+
+## Sentiment Analysis
+
+The platform includes comprehensive sentiment analysis capabilities with dual provider architecture for different use cases.
+
+### Provider Options
+
+#### HuggingFace Provider (Recommended for Speed)
+- **Best for**: High-volume processing, real-time analysis
+- **Models**: Specialized sentiment models (cardiffnlp/twitter-roberta-base-sentiment-latest)
+- **Performance**: 0.02-0.05 seconds per analysis
+- **Accuracy**: 95-99% confidence on clear sentiment cases
+- **Device Support**: Auto-detection (CPU/CUDA)
+
+#### LLM Provider (Recommended for Nuanced Analysis)
+- **Best for**: Complex text, detailed analysis, custom prompts
+- **Models**: Reuses existing LLM infrastructure (Ollama, OpenAI)
+- **Performance**: 2-5 seconds per analysis
+- **Accuracy**: Context-aware, handles nuanced sentiment
+- **Features**: Aspect-based analysis, emotion detection
+
+### Analysis Types
+
+```yaml
+# Basic sentiment analysis
+analysis_type: "basic"          # positive/negative/neutral + confidence
+
+# Detailed analysis with emotions
+analysis_type: "detailed"       # + emotions, key phrases, reasoning
+
+# Comprehensive analysis
+analysis_type: "comprehensive"  # + emotion scores, aspects, insights
+
+# Emotion-focused analysis
+analysis_type: "emotions"       # Detailed emotion detection
+```
+
+### Usage Examples
+
+#### Quick Sentiment Check (HuggingFace)
+```bash
+curl -X POST "http://localhost:8000/api/v1/sentiment-analysis/execute" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "I love this product! It works perfectly.",
+    "provider": "huggingface",
+    "analysis_type": "basic"
+  }'
+```
+
+**Response:**
+```json
+{
+  "sentiment": "positive",
+  "confidence": 0.988,
+  "all_scores": {
+    "negative": 0.005,
+    "neutral": 0.007,
+    "positive": 0.988
+  },
+  "processing_time_seconds": 0.03,
+  "provider": "huggingface",
+  "model_used": "cardiffnlp/twitter-roberta-base-sentiment-latest"
+}
+```
+
+#### Comprehensive Analysis (LLM)
+```bash
+curl -X POST "http://localhost:8000/api/v1/sentiment-analysis/execute" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "The product quality is excellent but shipping was slow and expensive.",
+    "provider": "llm",
+    "analysis_type": "comprehensive",
+    "llm_model": "mistral"
+  }'
+```
+
+**Response:**
+```json
+{
+  "sentiment": "mixed",
+  "confidence": 0.78,
+  "emotions": ["satisfaction", "frustration"],
+  "aspects": [
+    {"aspect": "product quality", "sentiment": "positive", "confidence": 0.9},
+    {"aspect": "shipping", "sentiment": "negative", "confidence": 0.8}
+  ],
+  "key_phrases": [
+    {"phrase": "excellent quality", "sentiment": "positive"},
+    {"phrase": "slow and expensive", "sentiment": "negative"}
+  ],
+  "insights": "Customer appreciates product quality but frustrated with shipping experience"
+}
+```
+
+### Configuration Options
+
+```yaml
+# Sentiment analysis flow configuration
+inputs:
+  - name: "text"              # Text to analyze (required)
+  - name: "provider"          # "huggingface" or "llm" (default: huggingface)
+  - name: "analysis_type"     # "basic", "detailed", "comprehensive", "emotions"
+  - name: "hf_model_name"     # HuggingFace model (optional)
+  - name: "llm_model"         # LLM model name (default: mistral)
+  - name: "device"            # "auto", "cpu", "cuda" (HuggingFace only)
+```
+
+### Performance Comparison
+
+| Provider | Speed | Accuracy | Use Case |
+|----------|-------|----------|----------|
+| **HuggingFace** | ⚡ 0.02-0.05s | 📊 95-99% | High-volume, real-time |
+| **LLM** | 🐌 2-5s | 🧠 Context-aware | Complex analysis, nuanced text |
+
+### Best Practices
+
+- **Use HuggingFace** for high-volume processing and clear sentiment cases
+- **Use LLM** for complex text requiring context understanding
+- **Basic analysis** for simple positive/negative classification
+- **Comprehensive analysis** for detailed insights and aspect-based sentiment
+- **Enable CUDA** for faster HuggingFace processing on GPU systems
 
 ## Container Architecture
 
