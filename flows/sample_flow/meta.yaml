@@ -1,9 +1,0 @@
-name: "Sample Flow"
-description: "A simple sample flow for demonstration purposes"
-version: "1.0.0"
-author: "AI Platform Team"
-tags:
-  - sample
-  - demo
-  - text-processing
-category: "examples"

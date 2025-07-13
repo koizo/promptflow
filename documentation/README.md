@@ -16,6 +16,7 @@ Detailed guides for each AI feature available in the platform:
 - **[Speech Transcription](ai-capabilities/speech-transcription.md)** - Convert audio to text with multiple provider support
 - **[Sentiment Analysis](ai-capabilities/sentiment-analysis.md)** - Analyze text sentiment with emotion detection and aspect analysis
 - **[Image Classification](ai-capabilities/image-classification.md)** - Classify images using multiple model architectures
+- **[LLM Analysis](ai-capabilities/llm-analysis.md)** - Advanced text analysis using Large Language Models with custom prompts
 
 ### Flow Development
 Learn how to create and configure AI workflows:
@@ -91,6 +92,12 @@ curl -X POST "http://localhost:8000/api/v1/document-analysis/execute" \
 - **Dual provider support** (HuggingFace + OpenAI Vision)
 - **Fast processing** (0.1-0.8 seconds)
 - **High accuracy** (95-99% on ImageNet classes)
+
+### LLM Analysis
+- **Multiple LLM providers** (Ollama local, extensible for OpenAI/Anthropic)
+- **Custom prompt engineering** for specific analysis needs
+- **Chunked text processing** for large documents
+- **Model selection** (mistral, llama3.2, codellama, etc.)
 
 ## 🏗️ Architecture Overview
 

@@ -78,6 +78,17 @@ curl -X POST "http://localhost:8000/api/v1/image-classification/execute" \
   -F "file=@image.jpg" -F "provider=huggingface" -F "top_k=5"
 ```
 
+### 🧠 LLM Analysis
+Advanced text analysis using Large Language Models with custom prompts and intelligent processing.
+
+**[📖 Full Documentation](documentation/ai-capabilities/llm-analysis.md)**
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/document-analysis/execute" \
+  -F "file=@document.pdf" \
+  -F "analysis_prompt=Summarize key points and provide recommendations"
+```
+
 ## 📝 Creating Flows
 
 Define AI workflows using simple YAML configuration:
@@ -148,6 +159,7 @@ class MyCustomExecutor(BaseExecutor):
 | **Speech Transcription** | 0.1-5s | 95-99% | Audio to text conversion |
 | **Sentiment Analysis** | 0.02-5s | 95-99% | Text emotion analysis |
 | **Image Classification** | 0.1-5s | 95-99% | Visual content analysis |
+| **LLM Analysis** | 2-10s | Context-aware | Advanced text understanding |
 
 ## 🏭 Production Ready
 
