@@ -79,18 +79,25 @@ steps:
       - "confidence"
       - "word_count"
       - "provider"
-      - "text"
-      - "confidence"
-      - "word_count"
-      - "provider"
 
   - name: "analyze_content"
     executor: "llm_analyzer"
     depends_on: ["extract_text"]
-    description: "Analyze extracted text using LLM"
+    description: "Analyze extracted text using LLM with dynamic prompts"
     config:
       text: "{{ steps.extract_text.text }}"
-      prompt: "Analyze the following text extracted from an image using OCR. Provide insights about the content, structure, and any important information: {{ steps.extract_text.text }}"
+      prompt: >
+        {% if inputs.analysis_type == 'summary' %}
+        Provide a concise summary of the following text extracted from an image: {{ steps.extract_text.text }}
+        {% elif inputs.analysis_type == 'key_points' %}
+        Extract and list the key points from the following text extracted from an image: {{ steps.extract_text.text }}
+        {% elif inputs.analysis_type == 'entities' %}
+        Identify and extract named entities (people, places, organizations, dates, etc.) from the following text extracted from an image: {{ steps.extract_text.text }}
+        {% elif inputs.analysis_type == 'custom' and inputs.custom_prompt %}
+        {{ inputs.custom_prompt }}: {{ steps.extract_text.text }}
+        {% else %}
+        Analyze the following text extracted from an image and provide comprehensive insights including key points, themes, and important information: {{ steps.extract_text.text }}
+        {% endif %}
       model: "{{ inputs.llm_model }}"
       provider: "ollama"
     outputs:
@@ -115,59 +122,49 @@ steps:
         word_count: "{{ steps.extract_text.word_count }}"
         analysis: "{{ steps.analyze_content.analysis }}"
         llm_model: "{{ inputs.llm_model }}"
-        word_count: "{{ steps.extract_text.word_count }}"
         analysis_type: "{{ inputs.analysis_type }}"
-        analysis: "{{ steps.analyze_content.analysis }}"
-        llm_model: "{{ inputs.llm_model }}"
 
 # Output schema - defines what the API returns
 outputs:
-  - name: "success"
-    value: "{{ success }}"
-    description: "Whether the flow completed successfully"
-  
-  - name: "flow"
-    value: "ocr_analysis"
-    description: "Flow identifier"
-  
-  - name: "steps_completed"
-    value: "{{ completed_steps }}"
-    description: "List of successfully completed steps"
-  
   - name: "image_file"
-    value: "{{ inputs.file.filename }}"
+    value: "{{ steps.handle_file.filename }}"
     description: "Name of the processed image file"
+  
+  - name: "image_extension"
+    value: "{{ steps.handle_file.file_extension }}"
+    description: "File extension of the processed image"
   
   - name: "extracted_text"
     value: "{{ steps.extract_text.text }}"
     description: "Text extracted from image via OCR"
   
+  - name: "text_length"
+    value: "{{ steps.extract_text.text | length }}"
+    description: "Length of extracted text"
+  
+  - name: "word_count"
+    value: "{{ steps.extract_text.word_count }}"
+    description: "Number of words extracted"
+  
   - name: "ocr_confidence"
     value: "{{ steps.extract_text.confidence }}"
     description: "OCR extraction confidence score"
+  
+  - name: "ocr_provider_used"
+    value: "{{ inputs.ocr_provider }}"
+    description: "OCR provider used for text extraction"
+  
+  - name: "languages_used"
+    value: "{{ inputs.languages }}"
+    description: "Languages used for OCR processing"
   
   - name: "analysis"
     value: "{{ steps.analyze_content.analysis }}"
     description: "LLM analysis of extracted text"
   
-  - name: "metadata"
-    value: "{{ metadata }}"
-    description: "Execution metadata and timing information"
-
-# Helper functions for dynamic prompt generation
-functions:
-  _get_analysis_prompt:
-    description: "Generate analysis prompt based on type"
-    implementation: |
-      def _get_analysis_prompt(analysis_type, custom_prompt):
-          prompts = {
-              "summary": "Provide a concise summary of the following text extracted from an image:",
-              "comprehensive": "Analyze the following text extracted from an image and provide comprehensive insights including key points, themes, and important information:",
-              "key_points": "Extract and list the key points from the following text extracted from an image:",
-              "entities": "Identify and extract named entities (people, places, organizations, dates, etc.) from the following text extracted from an image:",
-              "custom": custom_prompt or "Analyze the following text extracted from an image:"
-          }
-          return prompts.get(analysis_type, prompts["comprehensive"])
+  - name: "llm_model_used"
+    value: "{{ inputs.llm_model }}"
+    description: "LLM model used for analysis"
 
 # Flow configuration
 config:
