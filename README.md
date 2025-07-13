@@ -22,6 +22,7 @@ This project serves as a case study to evaluate **Amazon Q Developer** as an aut
 
 ```
 YAML Flow → Flow Engine → Executors → Auto-Generated API
+API -> Celery -> Executors
 ```
 
 The platform uses **Executors** (reusable AI components) orchestrated by **Flows** (YAML definitions) to automatically generate REST APIs.
@@ -35,27 +36,7 @@ cd promptflow
 docker-compose up -d
 ```
 
-2. **Test OCR analysis**
-```bash
-curl -X POST http://localhost:8000/api/v1/ocr-analysis/execute \
-  -F "file=@image.jpg"
-```
-
-3. **Test document analysis**
-```bash
-curl -X POST http://localhost:8000/api/v1/document-analysis/execute \
-  -F "file=@document.pdf"
-```
-
-4. **Test speech transcription**
-```bash
-curl -X POST http://localhost:8000/api/v1/speech-transcription/execute \
-  -F "file=@audio.wav" \
-  -F "whisper_provider=local" \
-  -F "language=auto"
-```
-
-5. **View documentation**
+2. **View documentation**
 - API Docs: http://localhost:8000/docs
 - Flow Catalog: http://localhost:8000/catalog
 
@@ -118,76 +99,6 @@ config:
 - **Timeout risk** - Long tasks may fail
 - **Development only** - Use for testing and debugging
 
-## Available Flows
-
-### OCR Analysis (Async)
-- **Endpoint**: `/api/v1/ocr-analysis/execute`
-- **Features**: Image text extraction, LLM analysis, status tracking
-
-### Document Analysis (Sync)
-- **Endpoint**: `/api/v1/document-analysis/execute`
-- **Features**: Multi-format support (PDF, Word, Excel), custom prompts
-
-### Speech Transcription (Async)
-- **Endpoint**: `/api/v1/speech-transcription/execute`
-- **Features**: Audio-to-text conversion, LLM analysis, multiple Whisper providers
-- **Supported Formats**: MP3, WAV, M4A, AAC, OGG, FLAC, WMA, OPUS
-- **Providers**: Local Whisper, OpenAI API, HuggingFace Models
-
-## Whisper Providers
-
-The speech transcription flow supports three Whisper providers, each with different advantages:
-
-### 1. Local Whisper (Default)
-```bash
-curl -X POST http://localhost:8000/api/v1/speech-transcription/execute \
-  -F "file=@audio.wav" \
-  -F "whisper_provider=local" \
-  -F "whisper_model=base"
-```
-- **Models**: tiny, base, small, medium, large
-- **Pros**: No API costs, works offline, good baseline performance
-- **Cons**: Limited to OpenAI's original models
-- **Best for**: Development, cost-sensitive deployments
-
-### 2. OpenAI Whisper API
-```bash
-curl -X POST http://localhost:8000/api/v1/speech-transcription/execute \
-  -F "file=@audio.wav" \
-  -F "whisper_provider=openai"
-```
-- **Requirements**: OPENAI_API_KEY environment variable
-- **Pros**: Highest quality, latest improvements, no local compute
-- **Cons**: Per-request costs, requires internet
-- **Best for**: Production with quality requirements
-
-### 3. HuggingFace Models (NEW!)
-```bash
-curl -X POST http://localhost:8000/api/v1/speech-transcription/execute \
-  -F "file=@audio.wav" \
-  -F "whisper_provider=huggingface" \
-  -F "hf_model_name=openai/whisper-large-v3" \
-  -F "device=auto"
-```
-
-#### Popular HuggingFace Models:
-- **openai/whisper-tiny** (39M params, fastest)
-- **openai/whisper-base** (74M params, good balance)
-- **openai/whisper-large-v3** (1550M params, best quality)
-- **distil-whisper/distil-large-v2** (756M params, **6x faster**)
-- **Custom fine-tuned models** (username/model-name)
-
-#### Device Options:
-- **auto**: GPU if available, fallback to CPU
-- **cuda**: Force GPU usage (requires NVIDIA GPU)
-- **cpu**: Force CPU usage (slower but universal)
-
-#### Advantages:
-- **Latest Models**: Access to newest Whisper variants
-- **Faster Options**: Distil-Whisper models with 6x speedup
-- **Custom Models**: Use domain-specific fine-tuned models
-- **No API Costs**: Run locally without per-request charges
-- **Flexibility**: Easy model switching via configuration
 
 ## Core Executors
 

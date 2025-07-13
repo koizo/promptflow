@@ -67,6 +67,24 @@ services:
       timeout: 10s
       retries: 3
       
+  celery-worker-sentiment_analysis:
+    build: .
+    command: celery -A celery_app worker --loglevel=info -Q sentiment_analysis --concurrency=2
+    depends_on:
+    - redis
+    environment:
+    - REDIS_URL=redis://redis:6379
+    - FLOW_NAME=sentiment_analysis
+    - MAX_CONCURRENT=2
+    - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    volumes:
+    - temp_files:/app/temp
+    healthcheck:
+      test: ["CMD", "celery", "-A", "celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   celery-flower:
     build: .
     command: celery -A celery_app flower --port=5555

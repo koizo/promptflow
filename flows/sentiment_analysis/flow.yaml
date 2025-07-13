@@ -1,0 +1,66 @@
+name: "sentiment_analysis"
+version: "1.0.0"
+description: "Analyze sentiment and emotions in text using HuggingFace or LLM providers"
+
+inputs:
+  - name: "text"
+    type: "string"
+    required: true
+    description: "Text to analyze for sentiment"
+  
+  - name: "provider"
+    type: "string"
+    required: false
+    default: "huggingface"
+    description: "Analysis provider to use"
+    
+  - name: "analysis_type"
+    type: "string"
+    required: false
+    default: "basic"
+    description: "Depth of sentiment analysis"
+    
+  - name: "hf_model_name"
+    type: "string"
+    required: false
+    default: "cardiffnlp/twitter-roberta-base-sentiment-latest"
+    description: "HuggingFace model name (huggingface provider only)"
+    
+  - name: "llm_model"
+    type: "string"
+    required: false
+    default: "mistral"
+    description: "LLM model to use (llm provider only)"
+    
+  - name: "device"
+    type: "string"
+    required: false
+    default: "auto"
+    description: "Device for HuggingFace models"
+
+steps:
+  - name: "analyze_sentiment"
+    executor: "sentiment_analyzer"
+    config:
+      text: "{{ inputs.text }}"
+      provider: "{{ inputs.provider }}"
+      analysis_type: "{{ inputs.analysis_type }}"
+      hf_model_name: "{{ inputs.hf_model_name }}"
+      llm_model: "{{ inputs.llm_model }}"
+      device: "{{ inputs.device }}"
+
+config:
+  execution:
+    mode: "async"
+    timeout: 300
+    max_retries: 3
+    queue: "sentiment_analysis"
+    worker: "celery-worker-sentiment_analysis"
+  
+  validation:
+    required_inputs: ["text"]
+    
+  metadata:
+    category: "text_analysis"
+    tags: ["sentiment", "nlp", "analysis"]
+    author: "AI Inference Platform"
