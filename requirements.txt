@@ -58,6 +58,31 @@ ollama>=0.1.0
 structlog>=23.2.0
 
 # Additional dependencies for OCR and image processing
-numpy>=1.21.0
+numpy>=2.1.0
 opencv-python>=4.5.0
 datasets>=2.0.0  # For Hugging Face datasets if needed
+
+# Database support
+SQLAlchemy>=2.0.0  # Added by langchain-community
+tenacity>=9.0.0    # Added by langchain-community
+
+# JSON processing
+orjson>=3.9.0      # Added by langsmith
+
+# Additional langchain dependencies
+langsmith>=0.1.0   # For langchain tracing
+dataclasses-json>=0.6.0  # For langchain serialization
+jsonpatch>=1.33    # For langchain core
+packaging>=24.0    # For langchain core
+
+# HTTP and networking
+aiohttp>=3.8.0     # For async HTTP requests
+requests-toolbelt>=1.0.0  # For advanced HTTP features
+
+# Compression
+zstandard>=0.23.0  # For data compression
+
+# Type checking and validation
+marshmallow>=3.18.0  # For data serialization
+typing-inspect>=0.9.0  # For type inspection
+mypy-extensions>=1.0.0  # For type extensions
