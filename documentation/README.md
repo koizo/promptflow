@@ -4,6 +4,11 @@ Comprehensive documentation for the PromptFlow AI Inference Platform - build pow
 
 ## 📚 Documentation Structure
 
+### Platform Architecture
+Understanding the system design and components:
+
+- **[Architecture Overview](architecture.md)** - Complete system architecture, components, and data flow
+
 ### AI Capabilities
 Detailed guides for each AI feature available in the platform:
 

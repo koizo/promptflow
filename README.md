@@ -137,7 +137,7 @@ class MyCustomExecutor(BaseExecutor):
 
 ### For Developers
 - **[⚙️ Creating Executors](documentation/executors/creating-executors.md)** - Build custom AI capabilities
-- **[🏗️ Architecture Guide](documentation/README.md#architecture-overview)** - Platform architecture details
+- **[🏗️ Architecture Guide](documentation/architecture.md)** - Platform architecture and system design
 - **[🧪 Testing Guide](documentation/executors/creating-executors.md#testing-your-executor)** - Test your implementations
 
 ## 🚀 Performance
