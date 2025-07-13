@@ -1,0 +1,169 @@
+# Document Analysis Prompts
+
+## Comprehensive Analysis
+Please provide a comprehensive analysis of the following document including:
+
+1. **Executive Summary**: A brief overview of the document's main purpose and content
+2. **Key Points**: The most important information, facts, or arguments presented
+3. **Main Themes**: Central topics or subjects discussed throughout the document
+4. **Important Entities**: 
+   - People (names, roles, titles)
+   - Organizations (companies, institutions, agencies)
+   - Dates (important timelines, deadlines, events)
+   - Locations (addresses, cities, countries)
+   - Financial information (amounts, budgets, costs)
+5. **Structure and Organization**: How the document is organized and flows
+6. **Conclusions or Recommendations**: Any conclusions drawn or recommendations made
+7. **Action Items**: Any tasks, next steps, or actions mentioned
+8. **Potential Issues or Concerns**: Any problems, risks, or concerns identified
+
+Document:
+{text}
+
+---
+
+## Summary Analysis
+Please provide a concise summary of the following document, focusing on:
+- Main purpose and objective
+- Key findings or information
+- Important conclusions or outcomes
+- Critical dates or deadlines
+
+Document:
+{text}
+
+---
+
+## Key Points Extraction
+Please extract and list the key points from the following document in a structured format:
+
+**Main Points:**
+- [List the most important points]
+
+**Supporting Details:**
+- [List supporting information for each main point]
+
+**Critical Information:**
+- [Highlight any critical or time-sensitive information]
+
+Document:
+{text}
+
+---
+
+## Entity Extraction
+Please identify and extract important entities from the following document:
+
+**People:**
+- Names, titles, roles, contact information
+
+**Organizations:**
+- Company names, institutions, agencies, departments
+
+**Dates and Times:**
+- Important dates, deadlines, timelines, schedules
+
+**Locations:**
+- Addresses, cities, states, countries, facilities
+
+**Financial Information:**
+- Amounts, budgets, costs, prices, financial terms
+
+**Technical Terms:**
+- Specialized terminology, acronyms, technical concepts
+
+**Legal/Regulatory:**
+- Laws, regulations, compliance requirements, legal terms
+
+Document:
+{text}
+
+---
+
+## Contract Analysis
+Please analyze this contract or legal document focusing on:
+
+**Parties Involved:**
+- Who are the contracting parties?
+- What are their roles and responsibilities?
+
+**Key Terms and Conditions:**
+- What are the main obligations of each party?
+- What are the key terms and conditions?
+
+**Financial Terms:**
+- Payment amounts, schedules, penalties
+- Cost structures, pricing models
+
+**Timeline and Deadlines:**
+- Start and end dates
+- Key milestones and deadlines
+- Renewal or termination clauses
+
+**Risk Factors:**
+- Potential risks or liabilities
+- Penalty clauses or consequences
+
+**Legal Requirements:**
+- Compliance requirements
+- Governing law and jurisdiction
+
+Document:
+{text}
+
+---
+
+## Financial Document Analysis
+Please analyze this financial document focusing on:
+
+**Financial Summary:**
+- Key financial figures and metrics
+- Revenue, expenses, profit/loss
+- Budget allocations
+
+**Trends and Patterns:**
+- Financial trends over time
+- Significant changes or variations
+
+**Key Performance Indicators:**
+- Important KPIs and metrics
+- Performance against targets
+
+**Risk Assessment:**
+- Financial risks identified
+- Mitigation strategies mentioned
+
+**Recommendations:**
+- Any financial recommendations or actions suggested
+
+Document:
+{text}
+
+---
+
+## Technical Document Analysis
+Please analyze this technical document focusing on:
+
+**Technical Overview:**
+- Main technical concepts and systems
+- Architecture or design principles
+
+**Requirements and Specifications:**
+- Technical requirements
+- System specifications
+- Performance criteria
+
+**Implementation Details:**
+- How things work or should be implemented
+- Technical procedures or processes
+
+**Dependencies and Integrations:**
+- System dependencies
+- Integration points with other systems
+
+**Risks and Considerations:**
+- Technical risks or challenges
+- Important considerations for implementation
+
+Document:
+{text}

@@ -19,6 +19,9 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgomp1 \
+    libreoffice \
+    pandoc \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Tesseract environment variables properly

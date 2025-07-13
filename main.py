@@ -74,6 +74,14 @@ app.state.flow_registry = FlowRegistry()
 app.state.router_factory = RouterFactory()
 app.state.state_store = StateStore()
 
+# Include document extraction routes (core functionality)
+from core.document_extraction.router import router as document_router
+app.include_router(document_router, prefix="/api/v1")
+
+# Include document analysis flow routes
+from flows.document_analysis.router import router as document_analysis_router
+app.include_router(document_analysis_router, prefix="/api/v1")
+
 
 @app.get("/")
 async def root():

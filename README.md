@@ -10,10 +10,19 @@ A production-ready AI inference platform that combines Optical Character Recogni
 
 ### Core Capabilities
 - **Multi-Provider OCR**: Support for Tesseract, TrOCR (Hugging Face), and configurable OCR engines
+- **Document Text Extraction**: LangChain-powered extraction from PDF, Word, Excel, PowerPoint, and more
 - **LLM Integration**: Seamless integration with Ollama, OpenAI, and other LLM providers
 - **Flow-Based Architecture**: Configurable processing pipelines using YAML DSL
 - **Document Analysis**: Intelligent extraction of entities, summaries, and structured data
 - **Multi-Language Support**: 40+ languages supported for OCR processing
+
+### Document Analysis Flow (NEW!)
+- **Complete Workflow**: End-to-end document processing with extraction + LLM analysis
+- **Multi-Format Support**: PDF, Word (.docx/.doc), Excel (.xlsx/.xls), PowerPoint (.pptx/.ppt)
+- **Text Files**: Plain text, CSV, Markdown, RTF support
+- **Smart Chunking**: Automatic text splitting for optimal LLM processing
+- **LangChain Integration**: Leverages proven document loaders
+- **Flow-Based Architecture**: Follows established patterns with proper step tracking
 
 ### OCR Providers
 - **Tesseract**: Excellent for documents and scene text (recommended)
@@ -110,9 +119,30 @@ curl -X POST http://localhost:8000/api/v1/ocr_analysis/upload \
   -F "languages=en"
 ```
 
-### 4. Check OCR Providers
+### 4. Document Text Extraction (Core)
 ```bash
-curl http://localhost:8000/ocr/info
+# Extract text from a PDF document
+curl -X POST http://localhost:8000/api/v1/document-extraction/extract \
+  -F "file=@document.pdf" \
+  -F "chunk_text=true"
+```
+
+### 5. Document Analysis Flow (Complete Workflow)
+```bash
+# Extract and analyze document with LLM
+curl -X POST http://localhost:8000/api/v1/document-analysis/analyze-document \
+  -F "file=@contract.docx" \
+  -F "analysis_prompt=Analyze this contract and identify key terms" \
+  -F "chunk_text=true"
+```
+
+### 6. Check Flow Information
+```bash
+# Document analysis flow info
+curl http://localhost:8000/api/v1/document-analysis/info
+
+# Core document extraction info
+curl http://localhost:8000/api/v1/document-extraction/info
 ```
 
 ## 📖 API Documentation
@@ -167,7 +197,8 @@ Input → OCR Provider → Text Extraction → LLM Analysis → Structured Outpu
 
 ### Available Flows
 1. **OCR Analysis Flow**: Complete OCR + LLM document analysis
-2. **Sample Flow**: Basic demonstration flow
+2. **Document Analysis Flow**: Complete document text extraction + LLM analysis
+3. **Sample Flow**: Basic demonstration flow
 
 ### Project Structure
 ```
@@ -178,6 +209,15 @@ promptflow/
 │   ├── flows/              # Processing flows
 │   ├── providers/          # OCR and LLM providers
 │   └── utils/              # Utility functions
+├── flows/
+│   ├── ocr_analysis/       # OCR + LLM analysis flow
+│   ├── document_analysis/  # Document extraction + LLM analysis flow
+│   └── sample_flow/        # Sample demonstration flow
+├── core/
+│   ├── document_extraction/ # Core document extraction providers
+│   ├── llm/                # LLM providers and managers
+│   ├── ocr/                # OCR providers and managers
+│   └── ...                 # Other core components
 ├── config/
 │   └── config.yaml         # Configuration file
 ├── docker/

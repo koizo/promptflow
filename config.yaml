@@ -26,6 +26,25 @@ uploads:
     - wav
     - mp3
     - txt
+    - docx
+    - doc
+    - pptx
+    - ppt
+    - xlsx
+    - xls
+    - csv
+    - md
+    - rtf
+
+# Document Extraction Configuration
+document_extraction:
+  default_provider: "langchain"
+  providers:
+    langchain:
+      chunk_size: 1000
+      chunk_overlap: 200
+      preserve_metadata: true
+      supported_formats: [".pdf", ".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls", ".txt", ".csv", ".md", ".rtf", ".odt", ".ods", ".odp"]
 
 # LLM Configuration
 llm:
