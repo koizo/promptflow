@@ -1,0 +1,373 @@
+# Redis Flow State Management Integration Plan
+# AI Inference Platform - Executor-Based Architecture
+# Created: July 10, 2025
+
+## 🎯 OVERVIEW
+Integrate Redis StateStore with the executor-based flow engine for persistent 
+flow and step management, enabling resumption, recovery, and distributed execution.
+
+Current Status: Redis infrastructure ready, StateStore implemented, needs integration
+
+## 📋 IMPLEMENTATION PHASES
+
+### PHASE 1: Core Integration Foundation ⏳
+Status: Not Started
+Priority: High
+
+#### 1.1 Update FlowRunner with StateStore Integration
+File: core/flow_engine/flow_runner.py
+- [ ] Add StateStore initialization to FlowRunner.__init__()
+- [ ] Add async initialize() method for Redis connection
+- [ ] Import StateStore and FlowState schemas
+- [ ] Add error handling for Redis connection failures
+
+Code Changes:
+```python
+class FlowRunner:
+    def __init__(self):
+        self.state_store = StateStore()
+        self.executor_registry = ExecutorRegistry()
+        # ... existing code
+    
+    async def initialize(self):
+        """Initialize Redis connection and executors"""
+        await self.state_store.initialize()
+        await self._register_executors()
+```
+
+#### 1.2 Enhance FlowContext with Persistence
+File: core/executors/base_executor.py
+- [ ] Add flow_id parameter to FlowContext.__init__()
+- [ ] Add redis_enabled flag for optional persistence
+- [ ] Generate UUID for flow_id if not provided
+- [ ] Update all FlowContext usage across executors
+
+Code Changes:
+```python
+class FlowContext:
+    def __init__(self, flow_name: str, inputs: Dict[str, Any], flow_id: str = None):
+        self.flow_id = flow_id or str(uuid.uuid4())
+        self.flow_name = flow_name
+        self.inputs = inputs
+        self.redis_enabled = True
+        # ... existing code
+```
+
+#### 1.3 Create FlowState Schema Extensions
+File: core/schema.py
+- [ ] Create FlowStepState model for individual step tracking
+- [ ] Extend existing FlowState model with step details
+- [ ] Add status enums (pending, running, completed, failed, paused)
+- [ ] Add timing and metadata fields
+
+Code Changes:
+```python
+class FlowStepState(BaseModel):
+    step_name: str
+    status: str  # pending, running, completed, failed
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    inputs: Dict[str, Any]
+    outputs: Optional[Dict[str, Any]]
+    error: Optional[str]
+    execution_time: Optional[float]
+
+class FlowState(BaseModel):
+    flow_id: str
+    flow_name: str
+    status: str  # pending, running, completed, failed, paused
+    inputs: Dict[str, Any]
+    steps: List[FlowStepState]
+    current_step: Optional[str]
+    started_at: datetime
+    completed_at: Optional[datetime]
+    total_execution_time: Optional[float]
+    metadata: Dict[str, Any] = {}
+```
+
+### PHASE 2: Step-by-Step State Persistence ⏳
+Status: Not Started
+Priority: High
+Dependencies: Phase 1 complete
+
+#### 2.1 Pre-Step State Saving
+File: core/flow_engine/flow_runner.py
+- [ ] Add _save_step_state() method
+- [ ] Implement pre-step state persistence
+- [ ] Add step execution timing
+- [ ] Handle step failure state saving
+
+Code Changes:
+```python
+async def execute_step(self, step: FlowStep, context: FlowContext) -> ExecutionResult:
+    # Save step start state
+    await self._save_step_state(context.flow_id, step.name, "running", 
+                               inputs=step_inputs, started_at=datetime.utcnow())
+    
+    try:
+        result = await executor.execute(context, step_config)
+        
+        # Save step completion state
+        await self._save_step_state(context.flow_id, step.name, "completed",
+                                   outputs=result.outputs, completed_at=datetime.utcnow())
+        return result
+    except Exception as e:
+        # Save step failure state
+        await self._save_step_state(context.flow_id, step.name, "failed",
+                                   error=str(e), completed_at=datetime.utcnow())
+        raise
+```
+
+#### 2.2 Flow Progress Tracking
+File: core/flow_engine/flow_runner.py
+- [ ] Add _update_flow_progress() method
+- [ ] Track current step and overall status
+- [ ] Update flow metadata and timing
+- [ ] Handle flow completion state
+
+Code Changes:
+```python
+async def _update_flow_progress(self, flow_id: str, current_step: str, status: str):
+    """Update overall flow progress in Redis"""
+    flow_state = await self.state_store.get_flow_state(flow_id)
+    if flow_state:
+        flow_state.current_step = current_step
+        flow_state.status = status
+        await self.state_store.save_flow_state(flow_state)
+```
+
+### PHASE 3: Flow Resumption & Recovery ⏳
+Status: Not Started
+Priority: Medium
+Dependencies: Phase 2 complete
+
+#### 3.1 Flow Resume Capability
+File: core/flow_engine/flow_runner.py
+- [ ] Add resume_flow() method
+- [ ] Implement step dependency resolution for resume
+- [ ] Add _execute_from_step() helper method
+- [ ] Handle partial flow state reconstruction
+
+Code Changes:
+```python
+async def resume_flow(self, flow_id: str) -> Dict[str, Any]:
+    """Resume a paused or failed flow from last successful step"""
+    flow_state = await self.state_store.get_flow_state(flow_id)
+    if not flow_state:
+        raise ValueError(f"Flow {flow_id} not found")
+    
+    # Find last completed step
+    completed_steps = [s.step_name for s in flow_state.steps if s.status == "completed"]
+    
+    # Resume from next step
+    return await self._execute_from_step(flow_state, len(completed_steps))
+```
+
+#### 3.2 Failure Recovery
+File: core/flow_engine/flow_runner.py
+- [ ] Add retry_failed_step() method
+- [ ] Implement single step retry logic
+- [ ] Add step reset functionality
+- [ ] Handle retry limits and backoff
+
+Code Changes:
+```python
+async def retry_failed_step(self, flow_id: str, step_name: str) -> ExecutionResult:
+    """Retry a specific failed step"""
+    flow_state = await self.state_store.get_flow_state(flow_id)
+    failed_step = next((s for s in flow_state.steps if s.step_name == step_name), None)
+    
+    if failed_step and failed_step.status == "failed":
+        # Reset step state and retry
+        return await self._execute_single_step(flow_state, step_name)
+```
+
+### PHASE 4: API Integration ⏳
+Status: Not Started
+Priority: Medium
+Dependencies: Phase 3 complete
+
+#### 4.1 Enhanced Flow Execution Endpoints
+File: core/flow_engine/api_generator.py
+- [ ] Add execute_flow_async() endpoint
+- [ ] Add get_flow_status() endpoint
+- [ ] Add resume_flow() endpoint
+- [ ] Implement background task management
+
+New Endpoints:
+- POST /api/v1/{flow-name}/execute-async
+- GET /api/v1/{flow-name}/status/{flow_id}
+- POST /api/v1/{flow-name}/resume/{flow_id}
+
+#### 4.2 Flow Management Endpoints
+File: core/flow_engine/api_generator.py
+- [ ] Add list_active_flows() endpoint
+- [ ] Add cancel_flow() endpoint
+- [ ] Add flow cleanup functionality
+- [ ] Implement flow search and filtering
+
+New Endpoints:
+- GET /api/v1/{flow-name}/active-flows
+- DELETE /api/v1/{flow-name}/flows/{flow_id}
+
+### PHASE 5: Advanced Features ⏳
+Status: Not Started
+Priority: Low
+Dependencies: Phase 4 complete
+
+#### 5.1 Flow Caching
+File: core/flow_engine/flow_runner.py
+- [ ] Add _check_flow_cache() method
+- [ ] Add _cache_flow_result() method
+- [ ] Implement input hashing for cache keys
+- [ ] Add cache TTL management
+
+#### 5.2 Flow Analytics & Monitoring
+File: core/flow_engine/flow_runner.py
+- [ ] Add _track_flow_metrics() method
+- [ ] Implement execution analytics
+- [ ] Add performance monitoring
+- [ ] Create metrics dashboard endpoints
+
+### PHASE 6: Configuration & Deployment ⏳
+Status: Not Started
+Priority: Low
+Dependencies: Phase 5 complete
+
+#### 6.1 Environment Configuration
+File: config.yaml
+- [ ] Add enhanced Redis settings
+- [ ] Add flow engine configuration
+- [ ] Add caching and persistence toggles
+- [ ] Add monitoring configuration
+
+#### 6.2 Docker Compose Updates
+File: docker-compose.yml
+Status: ✅ Already Complete
+- [x] Redis service configured
+- [x] Persistent storage setup
+- [x] Health checks implemented
+- [x] Redis Commander UI available
+
+## 📊 IMPLEMENTATION TIMELINE
+
+### Week 1: Foundation
+- [ ] Phase 1: Core Integration (FlowRunner + StateStore)
+- [ ] Update FlowContext with flow_id and persistence flags
+- [ ] Extend FlowState schema for step tracking
+
+### Week 2: State Management
+- [ ] Phase 2: Step-by-step persistence
+- [ ] Implement pre/post step state saving
+- [ ] Add flow progress tracking
+
+### Week 3: Recovery Features
+- [ ] Phase 3: Flow resumption and retry logic
+- [ ] Implement failure recovery mechanisms
+- [ ] Add flow cancellation capabilities
+
+### Week 4: API & Advanced Features
+- [ ] Phase 4: Enhanced API endpoints
+- [ ] Phase 5: Caching and analytics
+- [ ] Phase 6: Configuration and testing
+
+## 🎯 BENEFITS OF INTEGRATION
+
+### 1. Reliability
+- Flow resumption after failures or restarts
+- Step-level recovery for granular error handling
+- Persistent state survives application restarts
+
+### 2. Scalability
+- Distributed execution across multiple app instances
+- Concurrent flow management with proper coordination
+- Resource optimization through caching
+
+### 3. Observability
+- Real-time flow tracking and monitoring
+- Execution analytics and performance metrics
+- Debugging capabilities with step-by-step visibility
+
+### 4. User Experience
+- Async execution for long-running flows
+- Progress tracking with status endpoints
+- Flow management through REST APIs
+
+## 🚀 CURRENT STATUS
+
+### ✅ Ready Infrastructure
+- Redis server running in Docker
+- StateStore class fully implemented
+- Redis configuration in place
+- Health monitoring active
+
+### 🔄 Integration Points
+- FlowRunner needs StateStore integration
+- FlowContext needs flow_id support
+- API endpoints need async capabilities
+- Error handling needs persistence
+
+### 📝 Testing Strategy
+1. Test with existing flows (document_analysis, ocr_analysis)
+2. Verify backward compatibility with synchronous execution
+3. Test failure scenarios and recovery
+4. Performance testing with concurrent flows
+
+## 📋 CHECKLIST FOR EACH PHASE
+
+### Before Starting Each Phase:
+- [ ] Review dependencies and prerequisites
+- [ ] Create feature branch for phase
+- [ ] Update this plan with any changes
+- [ ] Identify test cases for the phase
+
+### During Implementation:
+- [ ] Update status in this file
+- [ ] Document any issues or blockers
+- [ ] Test incrementally
+- [ ] Update code comments and documentation
+
+### After Completing Each Phase:
+- [ ] Mark phase as complete in this file
+- [ ] Commit changes with descriptive message
+- [ ] Test integration with existing functionality
+- [ ] Update README if needed
+
+## 🐛 KNOWN ISSUES & CONSIDERATIONS
+
+### Potential Challenges:
+1. **Backward Compatibility**: Ensure existing synchronous flows still work
+2. **Error Handling**: Redis connection failures should not break flows
+3. **Performance**: State persistence should not significantly slow execution
+4. **Memory Usage**: Large flow states need efficient serialization
+5. **Concurrency**: Multiple instances accessing same flow state
+
+### Mitigation Strategies:
+1. **Graceful Degradation**: Fall back to in-memory execution if Redis unavailable
+2. **Connection Pooling**: Use Redis connection pool for performance
+3. **Selective Persistence**: Allow disabling persistence for simple flows
+4. **State Compression**: Compress large state objects before storage
+5. **Locking Mechanisms**: Use Redis locks for concurrent access control
+
+## 📚 REFERENCES
+
+### Files to Modify:
+- core/flow_engine/flow_runner.py (main integration)
+- core/executors/base_executor.py (FlowContext updates)
+- core/schema.py (FlowState extensions)
+- core/flow_engine/api_generator.py (new endpoints)
+- config.yaml (configuration updates)
+
+### Files Already Ready:
+- core/state_store.py (StateStore implementation)
+- docker-compose.yml (Redis infrastructure)
+- requirements.txt (Redis dependency)
+
+### Testing Files to Create:
+- test_redis_integration.py
+- test_flow_resumption.py
+- test_concurrent_flows.py
+
+---
+Last Updated: July 10, 2025
+Next Review: After Phase 1 completion
