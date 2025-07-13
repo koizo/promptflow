@@ -324,13 +324,15 @@ class FlowRunner:
     def _validate_inputs(self, flow: FlowDefinition, inputs: Dict[str, Any]):
         """Validate flow inputs."""
         for input_def in flow.inputs:
-            if input_def.required and input_def.name not in inputs:
-                if input_def.default is None:
-                    raise ValueError(f"Required input missing: {input_def.name}")
-                else:
-                    inputs[input_def.name] = input_def.default
+            # Apply default values for missing inputs (both required and optional)
+            if input_def.name not in inputs and input_def.default is not None:
+                inputs[input_def.name] = input_def.default
             
-            # Type validation could be added here
+            # Check for required inputs that are still missing
+            if input_def.required and input_def.name not in inputs:
+                raise ValueError(f"Required input missing: {input_def.name}")
+            
+            # Validate enum values
             if input_def.enum and input_def.name in inputs:
                 if inputs[input_def.name] not in input_def.enum:
                     raise ValueError(f"Input {input_def.name} must be one of: {input_def.enum}")

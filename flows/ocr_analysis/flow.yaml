@@ -83,20 +83,38 @@ steps:
   - name: "analyze_content"
     executor: "llm_analyzer"
     depends_on: ["extract_text"]
-    description: "Analyze extracted text using LLM with dynamic prompts"
+    description: "Analyze extracted text using LLM with dynamic prompting"
     config:
       text: "{{ steps.extract_text.text }}"
-      prompt: >
-        {% if inputs.analysis_type == 'summary' %}
-        Provide a concise summary of the following text extracted from an image: {{ steps.extract_text.text }}
+      prompt: >-
+        {% if inputs.analysis_type == 'custom' and inputs.get('custom_prompt') %}
+        {{ inputs.custom_prompt }}
+        
+        Text to analyze: {{ steps.extract_text.text }}
+        {% elif inputs.analysis_type == 'summary' %}
+        Please provide a concise summary of the following text extracted from an image:
+        
+        {{ steps.extract_text.text }}
         {% elif inputs.analysis_type == 'key_points' %}
-        Extract and list the key points from the following text extracted from an image: {{ steps.extract_text.text }}
+        Please identify and list the key points from the following text extracted from an image:
+        
+        {{ steps.extract_text.text }}
         {% elif inputs.analysis_type == 'entities' %}
-        Identify and extract named entities (people, places, organizations, dates, etc.) from the following text extracted from an image: {{ steps.extract_text.text }}
-        {% elif inputs.analysis_type == 'custom' and inputs.custom_prompt %}
-        {{ inputs.custom_prompt }}: {{ steps.extract_text.text }}
+        Please identify and extract all named entities (people, places, organizations, dates, etc.) from the following text extracted from an image:
+        
+        {{ steps.extract_text.text }}
+        {% elif inputs.analysis_type == 'comprehensive' %}
+        Please provide a comprehensive analysis of the following text extracted from an image, including:
+        - Summary of content
+        - Key themes and topics
+        - Important entities mentioned
+        - Overall context and meaning
+        
+        Text to analyze: {{ steps.extract_text.text }}
         {% else %}
-        Analyze the following text extracted from an image and provide comprehensive insights including key points, themes, and important information: {{ steps.extract_text.text }}
+        Please analyze the following text extracted from an image using OCR:
+        
+        {{ steps.extract_text.text }}
         {% endif %}
       model: "{{ inputs.llm_model }}"
       provider: "ollama"

@@ -98,16 +98,15 @@ class FlowAPIGenerator:
         # Get non-file inputs for form parameters
         form_inputs = [inp for inp in flow_def.inputs if inp.type != "file"]
         
-        @router.post(f"/execute", 
+        from fastapi import Request
+        
+        @router.post("/execute", 
                     summary=f"Execute {flow_def.name} flow",
                     description=flow_def.description,
                     response_model=Dict[str, Any])
         async def execute_flow_with_file(
-            file: UploadFile = File(..., description="File to process"),
-            analysis_prompt: str = Form(default="Analyze this document and provide insights"),
-            provider: str = Form(default="langchain"),
-            llm_model: str = Form(default="mistral"),
-            chunk_text: bool = Form(default=False)
+            request: Request,
+            file: UploadFile = File(..., description="File to process")
         ):
             try:
                 # Read file content as bytes
@@ -120,12 +119,45 @@ class FlowAPIGenerator:
                         "filename": file.filename,
                         "content_type": file.content_type,
                         "size": len(file_content)
-                    },
-                    "analysis_prompt": analysis_prompt,
-                    "provider": provider,
-                    "llm_model": llm_model,
-                    "chunk_text": chunk_text if isinstance(chunk_text, bool) else chunk_text.lower() == 'true'
+                    }
                 }
+                
+                # Parse form data from the request
+                form_data = {}
+                try:
+                    form = await request.form()
+                    for key, value in form.items():
+                        if key != 'file':  # Skip the file field
+                            form_data[key] = value
+                except Exception as e:
+                    self.logger.warning(f"Could not parse form data: {e}")
+                
+                # Add form parameters to inputs with proper type conversion
+                for inp in form_inputs:
+                    value = form_data.get(inp.name)
+                    
+                    if value is not None:
+                        # Convert form data to proper types
+                        if inp.type == "boolean":
+                            inputs[inp.name] = value.lower() in ('true', '1', 'yes', 'on') if isinstance(value, str) else bool(value)
+                        elif inp.type == "integer":
+                            inputs[inp.name] = int(value) if isinstance(value, str) else value
+                        elif inp.type == "number":
+                            inputs[inp.name] = float(value) if isinstance(value, str) else value
+                        elif inp.type == "array" and isinstance(value, str):
+                            # Convert comma-separated string to array
+                            inputs[inp.name] = [item.strip() for item in value.split(',') if item.strip()]
+                        else:
+                            inputs[inp.name] = value
+                    elif inp.default is not None:
+                        # Use default value if no form data provided
+                        inputs[inp.name] = inp.default
+                        self.logger.info(f"Using default value for '{inp.name}': {inp.default}")
+                
+                self.logger.info(f"Flow {flow_def.name} received inputs: {list(inputs.keys())}")
+                for key, value in inputs.items():
+                    if key != 'file':  # Don't log file content
+                        self.logger.info(f"  {key}: {value}")
                 
                 # Validate inputs against flow definition
                 validated_inputs = self._validate_inputs(inputs, flow_def)
@@ -138,9 +170,6 @@ class FlowAPIGenerator:
             except Exception as e:
                 self.logger.error(f"Flow execution failed: {str(e)}", exc_info=True)
                 raise HTTPException(status_code=500, detail=str(e))
-        
-        # Dynamically add form parameters based on flow inputs
-        self._add_form_parameters(execute_flow_with_file, flow_def)
     
     def _add_json_endpoint(self, router: APIRouter, flow_def: FlowDefinition):
         """Add JSON endpoint for flows that don't need file uploads."""
@@ -264,6 +293,9 @@ class FlowAPIGenerator:
         """Validate inputs against flow definition."""
         validated = {}
         
+        self.logger.info(f"Validating inputs for flow {flow_def.name}")
+        self.logger.info(f"Received inputs: {inputs}")
+        
         for input_def in flow_def.inputs:
             value = inputs.get(input_def.name)
             
@@ -274,11 +306,22 @@ class FlowAPIGenerator:
                 else:
                     raise ValueError(f"Required input '{input_def.name}' is missing")
             elif value is not None:
-                # Type validation could be added here
+                # Type validation and conversion
                 if input_def.enum and value not in input_def.enum:
                     raise ValueError(f"Input '{input_def.name}' must be one of: {input_def.enum}")
-                validated[input_def.name] = value
+                
+                # Handle type conversion for form data
+                if input_def.type == "boolean" and isinstance(value, str):
+                    validated[input_def.name] = value.lower() in ('true', '1', 'yes', 'on')
+                elif input_def.type == "array" and isinstance(value, str):
+                    # Handle comma-separated strings for arrays
+                    validated[input_def.name] = [item.strip() for item in value.split(',') if item.strip()]
+                elif input_def.type == "array" and isinstance(value, list):
+                    validated[input_def.name] = value
+                else:
+                    validated[input_def.name] = value
             elif input_def.default is not None:
+                # Only use default if no value was provided
                 validated[input_def.name] = input_def.default
         
         return validated
@@ -324,12 +367,7 @@ class FlowAPIGenerator:
             "object": Dict[str, Any]
         }
         return type_mapping.get(input_type, str)
-    
-    def _add_form_parameters(self, endpoint_func, flow_def: FlowDefinition):
-        """Dynamically add form parameters to file upload endpoint."""
-        # This would require more advanced FastAPI parameter injection
-        # For now, we'll handle form parameters in the endpoint body
-        pass
+
     
     def get_openapi_schema_for_flow(self, flow_def: FlowDefinition) -> Dict[str, Any]:
         """Generate OpenAPI schema for a specific flow."""
