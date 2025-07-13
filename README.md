@@ -111,6 +111,7 @@ config:
 - **OCRProcessor** - Optical Character Recognition
 - **WhisperProcessor** - Speech-to-text transcription (Local, OpenAI, HuggingFace)
 - **SentimentAnalyzer** - Sentiment and emotion analysis (HuggingFace, LLM)
+- **VisionClassifier** - Image classification with multiple models (HuggingFace, OpenAI Vision)
 - **LLMAnalyzer** - Large Language Model analysis
 
 ### Utility
@@ -271,6 +272,122 @@ inputs:
 - **Basic analysis** for simple positive/negative classification
 - **Comprehensive analysis** for detailed insights and aspect-based sentiment
 - **Enable CUDA** for faster HuggingFace processing on GPU systems
+
+## Image Classification
+
+The platform provides powerful image classification capabilities with dual provider architecture for different use cases and performance requirements.
+
+### Provider Options
+
+#### HuggingFace Provider (Recommended for Speed)
+- **Best for**: High-volume processing, real-time classification, offline deployment
+- **Models**: Multiple pre-trained architectures (Vision Transformer, ResNet, EfficientNet, ConvNeXT)
+- **Performance**: 0.1-0.8 seconds per classification
+- **Accuracy**: 95-99% on standard ImageNet classes
+- **Device Support**: Auto-detection (CPU/CUDA)
+
+#### OpenAI Provider (Recommended for Detailed Analysis)
+- **Best for**: Complex scenes, custom descriptions, natural language output
+- **Models**: GPT-4 Vision, GPT-4 Omni models
+- **Performance**: 2-5 seconds per classification
+- **Accuracy**: Context-aware, handles complex scenes
+- **Features**: Natural language descriptions, custom prompts
+
+### Supported Models
+
+#### HuggingFace Models
+```yaml
+# Vision Transformer (Recommended)
+hf_model_name: "google/vit-base-patch16-224"     # 86M params, fast
+
+# ResNet Models
+hf_model_name: "microsoft/resnet-50"            # 25M params, reliable
+
+# EfficientNet Models  
+hf_model_name: "google/efficientnet-b0"         # 5M params, efficient
+
+# ConvNeXT Models
+hf_model_name: "facebook/convnext-tiny-224"     # 28M params, modern
+```
+
+### Usage Examples
+
+#### Quick Image Classification (HuggingFace)
+```bash
+curl -X POST "http://localhost:8000/api/v1/image-classification/execute" \
+  -F "file=@cat.jpg" \
+  -F "provider=huggingface" \
+  -F "top_k=3" \
+  -F "hf_model_name=google/vit-base-patch16-224"
+```
+
+**Response:**
+```json
+{
+  "top_prediction": {
+    "label": "tiger cat",
+    "score": 0.892
+  },
+  "predictions": [
+    {"label": "tiger cat", "score": 0.892},
+    {"label": "tabby cat", "score": 0.087},
+    {"label": "Egyptian cat", "score": 0.021}
+  ],
+  "processing_time_seconds": 0.097,
+  "provider": "huggingface",
+  "model_used": "google/vit-base-patch16-224"
+}
+```
+
+#### Detailed Analysis (OpenAI Vision)
+```bash
+curl -X POST "http://localhost:8000/api/v1/image-classification/execute" \
+  -F "file=@scene.jpg" \
+  -F "provider=openai" \
+  -F "openai_model=gpt-4-vision-preview" \
+  -F "classification_prompt=Describe this image in detail"
+```
+
+**Response:**
+```json
+{
+  "description": "A orange tabby cat sitting on a wooden table near a window...",
+  "classifications": ["domestic cat", "furniture", "indoor scene"],
+  "confidence": 0.95,
+  "processing_time_seconds": 3.2,
+  "provider": "openai",
+  "model_used": "gpt-4-vision-preview"
+}
+```
+
+### Configuration Options
+
+```yaml
+# Image classification flow configuration
+inputs:
+  - name: "file"              # Image file (required)
+  - name: "provider"          # "huggingface" or "openai" (default: huggingface)
+  - name: "top_k"             # Number of predictions (default: 5)
+  - name: "confidence_threshold" # Minimum confidence (default: 0.1)
+  - name: "hf_model_name"     # HuggingFace model (optional)
+  - name: "openai_model"      # OpenAI model (default: gpt-4-vision-preview)
+  - name: "device"            # "auto", "cpu", "cuda" (HuggingFace only)
+```
+
+### Performance Comparison
+
+| Provider | Speed | Accuracy | Use Case |
+|----------|-------|----------|----------|
+| **HuggingFace** | ⚡ 0.1-0.8s | 📊 95-99% | High-volume, real-time |
+| **OpenAI** | 🐌 2-5s | 🧠 Context-aware | Complex scenes, descriptions |
+
+### Best Practices
+
+- **Use HuggingFace** for high-volume processing and standard object classification
+- **Use OpenAI** for complex scenes requiring detailed analysis or custom descriptions
+- **Vision Transformer** models generally provide the best accuracy/speed balance
+- **Enable CUDA** for faster HuggingFace processing on GPU systems
+- **Model caching** improves performance for repeated classifications with same model
 
 ## Container Architecture
 

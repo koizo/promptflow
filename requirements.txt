@@ -96,3 +96,7 @@ typing-inspect>=0.9.0  # For type inspection
 mypy-extensions>=1.0.0  # For type extensions
 transformers>=4.35.0
 torch>=2.0.0
+
+# Vision processing dependencies
+torchvision>=0.15.0  # For vision models and transforms
+Pillow>=9.5.0  # For image processing (already included but ensuring version)

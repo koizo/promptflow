@@ -17,6 +17,8 @@ from .image_handler import ImageHandler
 from .data_combiner import DataCombiner
 from .response_formatter import ResponseFormatter
 from .whisper_processor import WhisperProcessor
+from .sentiment_analyzer import SentimentAnalyzer
+from .vision_classifier import VisionClassifier
 
 __all__ = [
     "BaseExecutor",
@@ -29,5 +31,7 @@ __all__ = [
     "ImageHandler",
     "DataCombiner",
     "ResponseFormatter",
-    "WhisperProcessor"
+    "WhisperProcessor",
+    "SentimentAnalyzer",
+    "VisionClassifier"
 ]

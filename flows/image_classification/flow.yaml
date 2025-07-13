@@ -1,0 +1,82 @@
+name: "image_classification"
+version: "1.0.0"
+description: "Classify images using HuggingFace or OpenAI Vision models with support for multiple architectures and custom prompts"
+
+inputs:
+  - name: "file"
+    type: "file"
+    required: true
+    description: "Image file to classify (JPEG, PNG, WebP supported)"
+    
+  - name: "provider"
+    type: "string"
+    required: false
+    default: "huggingface"
+    description: "Classification provider to use"
+    
+  - name: "top_k"
+    type: "integer"
+    required: false
+    default: 5
+    description: "Number of top predictions to return"
+    
+  - name: "confidence_threshold"
+    type: "float"
+    required: false
+    default: 0.1
+    description: "Minimum confidence threshold for predictions"
+    
+  # HuggingFace specific parameters
+  - name: "hf_model_name"
+    type: "string"
+    required: false
+    default: "google/vit-base-patch16-224"
+    description: "HuggingFace model name for classification"
+    
+  - name: "device"
+    type: "string"
+    required: false
+    default: "auto"
+    description: "Device for HuggingFace models"
+    
+  # OpenAI specific parameters
+  - name: "openai_model"
+    type: "string"
+    required: false
+    default: "gpt-4-vision-preview"
+    description: "OpenAI vision model to use"
+    
+  - name: "classification_prompt"
+    type: "string"
+    required: false
+    default: ""
+    description: "Custom classification prompt for OpenAI (optional)"
+
+steps:
+  - name: "classify_image"
+    executor: "vision_classifier"
+    config:
+      image: "{{ inputs.file }}"
+      provider: "{{ inputs.provider }}"
+      top_k: "{{ inputs.top_k }}"
+      confidence_threshold: "{{ inputs.confidence_threshold }}"
+      hf_model_name: "{{ inputs.hf_model_name }}"
+      device: "{{ inputs.device }}"
+      openai_model: "{{ inputs.openai_model }}"
+      classification_prompt: "{{ inputs.classification_prompt }}"
+
+config:
+  execution:
+    mode: "async"
+    timeout: 300
+    max_retries: 3
+    queue: "image_classification"
+    worker: "celery-worker-image_classification"
+  
+  validation:
+    required_inputs: ["file"]
+    
+  metadata:
+    category: "computer_vision"
+    tags: ["image", "classification", "vision", "ai"]
+    author: "AI Inference Platform"

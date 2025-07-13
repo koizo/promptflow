@@ -85,6 +85,19 @@ services:
       timeout: 10s
       retries: 3
 
+  celery-worker-image_classification:
+    build: .
+    command: celery -A celery_app worker -Q image_classification --loglevel=info --concurrency=2
+    depends_on:
+      - redis
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    volumes:
+      - ./logs:/app/logs
+      - ./flows:/app/flows
+    restart: unless-stopped
+
   celery-flower:
     build: .
     command: celery -A celery_app flower --port=5555
