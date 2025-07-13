@@ -186,7 +186,16 @@ outputs:
 
 # Flow configuration
 config:
-  timeout: 300  # 5 minutes
-  retry_count: 2
-  async_execution: false
+  execution:
+    mode: "async"              # Enable async execution for OCR analysis
+    timeout: 300               # 5 minutes
+    retry_count: 2
+    auto_resume: true          # Auto-resume failed flows
+    max_concurrent: 2          # Max 2 concurrent OCR analyses
+  
+  callbacks:
+    enabled: true              # Allow callback URLs
+    max_retries: 3            # Callback retry attempts
+    retry_delay: 60           # Seconds between callback retries
+  
   cleanup_temp_files: true

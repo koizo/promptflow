@@ -6,15 +6,18 @@ Creates POST endpoints for flow execution, GET endpoints for flow information,
 and handles input validation, file uploads, and response formatting.
 """
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, BackgroundTasks
 from fastapi.responses import JSONResponse
 from typing import Dict, Any, Optional, List, Union, TYPE_CHECKING
 from pydantic import BaseModel, Field, create_model
 import logging
 import tempfile
+import uuid
 from pathlib import Path
+from datetime import datetime, timezone
 
 from .yaml_loader import FlowDefinition, FlowInput
+from .celery_config import should_execute_async
 
 if TYPE_CHECKING:
     from .flow_runner import FlowRunner
@@ -60,6 +63,11 @@ class FlowAPIGenerator:
         self._add_health_endpoint(router, flow_def)
         self._add_supported_formats_endpoint(router, flow_def)
         
+        # Add async-specific endpoints if flow supports async execution
+        execution_config = flow_def.config.get('execution', {})
+        if execution_config.get('mode') in ['async', 'auto']:
+            self._add_async_management_endpoints(router, flow_def)
+        
         return router
     
     def generate_all_routers(self) -> List[APIRouter]:
@@ -82,7 +90,7 @@ class FlowAPIGenerator:
         return routers
     
     def _add_execution_endpoint(self, router: APIRouter, flow_def: FlowDefinition):
-        """Add main flow execution endpoint."""
+        """Add main flow execution endpoint with sync/async support based on YAML config."""
         
         # Determine if flow needs file upload
         has_file_input = any(inp.type == "file" for inp in flow_def.inputs)
@@ -93,7 +101,7 @@ class FlowAPIGenerator:
             self._add_json_endpoint(router, flow_def)
     
     def _add_file_upload_endpoint(self, router: APIRouter, flow_def: FlowDefinition):
-        """Add file upload endpoint for flows that accept files."""
+        """Add file upload endpoint for flows that accept files with sync/async support."""
         
         # Get non-file inputs for form parameters
         form_inputs = [inp for inp in flow_def.inputs if inp.type != "file"]
@@ -106,7 +114,8 @@ class FlowAPIGenerator:
                     response_model=Dict[str, Any])
         async def execute_flow_with_file(
             request: Request,
-            file: UploadFile = File(..., description="File to process")
+            file: UploadFile = File(..., description="File to process"),
+            callback_url: Optional[str] = Form(None, description="Callback URL for async execution")
         ):
             try:
                 # Read file content as bytes
@@ -127,7 +136,7 @@ class FlowAPIGenerator:
                 try:
                     form = await request.form()
                     for key, value in form.items():
-                        if key != 'file':  # Skip the file field
+                        if key not in ['file', 'callback_url']:  # Skip special fields
                             form_data[key] = value
                 except Exception as e:
                     self.logger.warning(f"Could not parse form data: {e}")
@@ -162,17 +171,53 @@ class FlowAPIGenerator:
                 # Validate inputs against flow definition
                 validated_inputs = self._validate_inputs(inputs, flow_def)
                 
-                # Execute flow
-                result = await self.flow_runner.run_flow(flow_def.name, validated_inputs)
+                # Determine execution mode (sync vs async)
+                should_async = should_execute_async(flow_def, validated_inputs)
                 
-                return result
+                if should_async:
+                    # Async execution
+                    flow_id = str(uuid.uuid4())
+                    
+                    # Import and submit to Celery
+                    from celery_app import execute_flow_async
+                    task = execute_flow_async.delay(flow_def.name, validated_inputs, flow_id, callback_url)
+                    
+                    # Get execution config for response
+                    execution_config = flow_def.config.get('execution', {})
+                    
+                    return {
+                        "flow_id": flow_id,
+                        "task_id": task.id,
+                        "status": "queued",
+                        "execution_mode": "async",
+                        "queue": flow_def.name,
+                        "worker": f"celery-worker-{flow_def.name}",
+                        "callback_url": callback_url,
+                        
+                        "urls": {
+                            "status": f"/api/v1/{flow_def.name.replace('_', '-')}/status/{flow_id}",
+                            "cancel": f"/api/v1/{flow_def.name.replace('_', '-')}/cancel/{flow_id}"
+                        },
+                        
+                        "config": {
+                            "auto_resume": execution_config.get('auto_resume', True),
+                            "max_retries": execution_config.get('retry_count', 3),
+                            "timeout": execution_config.get('timeout', 300),
+                            "callback_enabled": flow_def.config.get('callbacks', {}).get('enabled', False),
+                            "max_concurrent": execution_config.get('max_concurrent', 2)
+                        }
+                    }
+                else:
+                    # Sync execution (existing behavior)
+                    result = await self.flow_runner.run_flow(flow_def.name, validated_inputs)
+                    return result
                 
             except Exception as e:
                 self.logger.error(f"Flow execution failed: {str(e)}", exc_info=True)
                 raise HTTPException(status_code=500, detail=str(e))
     
     def _add_json_endpoint(self, router: APIRouter, flow_def: FlowDefinition):
-        """Add JSON endpoint for flows that don't need file uploads."""
+        """Add JSON endpoint for flows that don't need file uploads with sync/async support."""
         
         # Create Pydantic model for request validation
         request_model = self._create_request_model(flow_def)
@@ -181,18 +226,168 @@ class FlowAPIGenerator:
                     summary=f"Execute {flow_def.name} flow", 
                     description=flow_def.description,
                     response_model=Dict[str, Any])
-        async def execute_flow_json(request: request_model):
+        async def execute_flow_json(
+            request: request_model,
+            callback_url: Optional[str] = None
+        ):
             try:
                 # Convert request to dict
                 inputs = request.dict()
                 
-                # Execute flow
-                result = await self.flow_runner.run_flow(flow_def.name, inputs)
+                # Determine execution mode (sync vs async)
+                should_async = should_execute_async(flow_def, inputs)
                 
-                return result
+                if should_async:
+                    # Async execution
+                    flow_id = str(uuid.uuid4())
+                    
+                    # Import and submit to Celery
+                    from celery_app import execute_flow_async
+                    task = execute_flow_async.delay(flow_def.name, inputs, flow_id, callback_url)
+                    
+                    # Get execution config for response
+                    execution_config = flow_def.config.get('execution', {})
+                    
+                    return {
+                        "flow_id": flow_id,
+                        "task_id": task.id,
+                        "status": "queued",
+                        "execution_mode": "async",
+                        "queue": flow_def.name,
+                        "worker": f"celery-worker-{flow_def.name}",
+                        "callback_url": callback_url,
+                        
+                        "urls": {
+                            "status": f"/api/v1/{flow_def.name.replace('_', '-')}/status/{flow_id}",
+                            "cancel": f"/api/v1/{flow_def.name.replace('_', '-')}/cancel/{flow_id}"
+                        },
+                        
+                        "config": {
+                            "auto_resume": execution_config.get('auto_resume', True),
+                            "max_retries": execution_config.get('retry_count', 3),
+                            "timeout": execution_config.get('timeout', 300),
+                            "callback_enabled": flow_def.config.get('callbacks', {}).get('enabled', False),
+                            "max_concurrent": execution_config.get('max_concurrent', 2)
+                        }
+                    }
+                else:
+                    # Sync execution (existing behavior)
+                    result = await self.flow_runner.run_flow(flow_def.name, inputs)
+                    return result
                 
             except Exception as e:
                 self.logger.error(f"Flow execution failed: {str(e)}", exc_info=True)
+                raise HTTPException(status_code=500, detail=str(e))
+    
+    def _add_async_management_endpoints(self, router: APIRouter, flow_def: FlowDefinition):
+        """Add async flow management endpoints (status, cancel, resume)."""
+        
+        @router.get("/status/{flow_id}",
+                   summary=f"Get {flow_def.name} flow status",
+                   response_model=Dict[str, Any])
+        async def get_flow_status(flow_id: str):
+            """Get detailed status of an async flow execution."""
+            try:
+                # Get Celery task info
+                from celery_app import celery_app
+                task = celery_app.AsyncResult(flow_id)
+                
+                # Get detailed flow state from Redis
+                flow_state = await self.flow_runner.state_store.get_flow_state(flow_id)
+                
+                if not flow_state:
+                    raise HTTPException(status_code=404, detail=f"Flow {flow_id} not found")
+                
+                # Calculate progress
+                total_steps = len(flow_state.steps)
+                completed_steps = [s for s in flow_state.steps if s.status == "completed"]
+                failed_steps = [s for s in flow_state.steps if s.status == "failed"]
+                
+                progress_percentage = (len(completed_steps) / total_steps * 100) if total_steps > 0 else 0
+                
+                return {
+                    "flow_id": flow_id,
+                    "status": flow_state.status if flow_state else "unknown",
+                    
+                    # Progress information
+                    "progress": {
+                        "percentage": progress_percentage,
+                        "current_step": flow_state.current_step if flow_state else None,
+                        "completed_steps": [s.step_name for s in completed_steps],
+                        "failed_steps": [s.step_name for s in failed_steps]
+                    },
+                    
+                    # Execution details
+                    "execution": {
+                        "started_at": flow_state.started_at.isoformat() if flow_state and flow_state.started_at else None,
+                        "queue": flow_state.flow_name,
+                        "worker": f"celery-worker-{flow_state.flow_name}",
+                        "retry_count": flow_state.metadata.get("retry_count", 0) if flow_state and flow_state.metadata else 0
+                    },
+                    
+                    # Callback information
+                    "callback": {
+                        "url": flow_state.callback_url if flow_state else None,
+                        "status": flow_state.callback_status if flow_state else None,
+                        "enabled": flow_def.config.get('callbacks', {}).get('enabled', False)
+                    },
+                    
+                    # Available actions
+                    "actions": {
+                        "cancel_url": f"/api/v1/{flow_def.name.replace('_', '-')}/cancel/{flow_id}" if task.state in ['PENDING', 'STARTED'] else None,
+                        "resume_url": f"/api/v1/{flow_def.name.replace('_', '-')}/resume/{flow_id}" if flow_state and flow_state.status == "failed" else None
+                    }
+                }
+                
+            except HTTPException:
+                raise
+            except Exception as e:
+                self.logger.error(f"Failed to get flow status: {str(e)}", exc_info=True)
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @router.post("/cancel/{flow_id}",
+                    summary=f"Cancel {flow_def.name} flow execution",
+                    response_model=Dict[str, Any])
+        async def cancel_flow_execution(flow_id: str):
+            """Cancel a running async flow execution."""
+            try:
+                # Cancel Celery task
+                from celery_app import celery_app, revoke_task
+                revoke_task(flow_id, terminate=True)
+                
+                # Cancel flow in our system
+                result = await self.flow_runner.cancel_flow(flow_id)
+                
+                return {
+                    "flow_id": flow_id,
+                    "status": "cancelled",
+                    "message": f"Flow {flow_id} cancelled successfully",
+                    "result": result
+                }
+                
+            except Exception as e:
+                self.logger.error(f"Failed to cancel flow: {str(e)}", exc_info=True)
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @router.post("/resume/{flow_id}",
+                    summary=f"Resume {flow_def.name} flow execution",
+                    response_model=Dict[str, Any])
+        async def resume_flow_execution(flow_id: str):
+            """Resume a failed async flow execution."""
+            try:
+                # Submit resume task to Celery
+                from celery_app import resume_flow_async
+                task = resume_flow_async.delay(flow_id)
+                
+                return {
+                    "flow_id": flow_id,
+                    "task_id": task.id,
+                    "status": "resuming",
+                    "message": f"Flow {flow_id} resumption started"
+                }
+                
+            except Exception as e:
+                self.logger.error(f"Failed to resume flow: {str(e)}", exc_info=True)
                 raise HTTPException(status_code=500, detail=str(e))
     
     def _add_info_endpoint(self, router: APIRouter, flow_def: FlowDefinition):

@@ -175,32 +175,182 @@ Implementation Notes:
 - Graceful degradation when Redis unavailable
 
 ### PHASE 4: API Integration ⏳
-Status: Not Started
+Status: Ready to Implement
 Priority: Medium
-Dependencies: Phase 3 complete
+Dependencies: Phase 3 complete ✅
 
 #### 4.1 Enhanced Flow Execution Endpoints
 File: core/flow_engine/api_generator.py
-- [ ] Add execute_flow_async() endpoint
-- [ ] Add get_flow_status() endpoint
-- [ ] Add resume_flow() endpoint
-- [ ] Implement background task management
+- [ ] Add dynamic async execution based on YAML async_execution flag
+- [ ] Add callback_url parameter support for async flows
+- [ ] Implement separate worker per flow for isolation
+- [ ] Add simplified status endpoint (no time estimates)
 
-New Endpoints:
-- POST /api/v1/{flow-name}/execute-async
-- GET /api/v1/{flow-name}/status/{flow_id}
-- POST /api/v1/{flow-name}/resume/{flow_id}
+New Behavior:
+- Same endpoint (/execute) with different response based on flow config
+- Async flows return: {"flow_id": "abc123", "status": "queued", "worker": "celery-worker-ocr-analysis"}
+- Sync flows return: {"result": {...}, "execution_time": 2.5}
 
-#### 4.2 Flow Management Endpoints
+#### 4.2 Dynamic Queue & Worker Management
+File: core/flow_engine/celery_config.py (new)
+- [ ] Generate one Celery queue per async flow dynamically
+- [ ] Create separate worker per async flow for isolation
+- [ ] Use Redis as broker/backend (unified with existing Redis)
+- [ ] Auto-generate docker-compose.yml with worker services
+
+Queue Strategy:
+- One queue per flow: "ocr_analysis", "document_analysis"
+- One worker per flow: "celery-worker-ocr-analysis", "celery-worker-document-analysis"
+- Dynamic generation based on flows with execution.mode: "async"
+
+#### 4.3 Enhanced Flow Configuration
+File: core/flow_engine/yaml_loader.py
+- [ ] Parse enhanced execution configuration from YAML
+- [ ] Support execution modes: sync, async, auto
+- [ ] Add callback configuration parsing
+- [ ] Add per-flow concurrency control
+
+Enhanced YAML Config:
+```yaml
+config:
+  execution:
+    mode: "async"              # sync, async, or auto
+    timeout: 300               # seconds
+    retry_count: 3
+    auto_resume: true          # auto-resume failed flows
+    max_concurrent: 3          # worker concurrency for this flow
+  
+  callbacks:
+    enabled: true              # allow callback URLs
+    max_retries: 3            # callback retry attempts
+    retry_delay: 60           # seconds between retries
+```
+
+#### 4.4 Simplified Status Endpoint
 File: core/flow_engine/api_generator.py
-- [ ] Add list_active_flows() endpoint
-- [ ] Add cancel_flow() endpoint
-- [ ] Add flow cleanup functionality
-- [ ] Implement flow search and filtering
+- [ ] Add GET /api/v1/{flow-name}/status/{flow_id}
+- [ ] Include progress, execution details, callback info
+- [ ] Add available actions (cancel, resume)
+- [ ] Remove time estimation complexity
 
-New Endpoints:
-- GET /api/v1/{flow-name}/active-flows
-- DELETE /api/v1/{flow-name}/flows/{flow_id}
+Status Response:
+```json
+{
+  "flow_id": "abc123",
+  "status": "running",
+  "progress": {
+    "percentage": 65,
+    "current_step": "analyze_content",
+    "completed_steps": ["handle_file", "extract_text"],
+    "failed_steps": []
+  },
+  "execution": {
+    "started_at": "2025-07-10T12:00:00Z",
+    "queue": "ocr_analysis",
+    "worker": "celery-worker-ocr-analysis",
+    "retry_count": 0
+  },
+  "callback": {
+    "url": "https://myapp.com/webhook",
+    "status": "pending",
+    "enabled": true
+  },
+  "actions": {
+    "cancel_url": "/api/v1/ocr-analysis/cancel/abc123",
+    "resume_url": null
+  }
+}
+```
+
+#### 4.5 Celery Integration with Redis
+File: celery_app.py (new)
+- [ ] Configure Celery with Redis broker (DB 0) and result backend (DB 1)
+- [ ] Create execute_flow_async task with callback URL support
+- [ ] Integrate with Phase 3 resumption capabilities
+- [ ] Add automatic retry logic with exponential backoff
+
+Celery Task:
+```python
+@celery_app.task(bind=True, autoretry_for=(Exception,))
+def execute_flow_async(self, flow_name: str, inputs: dict, flow_id: str, callback_url: str = None):
+    # Store callback URL in Redis flow state
+    # Execute flow with existing Redis state persistence
+    # TODO: Future - notify callback URL on completion
+```
+
+#### 4.6 Dynamic Infrastructure Management
+File: docker_compose_generator.py (new)
+- [ ] Generate docker-compose.yml based on async flows
+- [ ] Create separate worker service per async flow
+- [ ] Add per-flow concurrency configuration
+- [ ] Support hot-reload of new flows
+
+Auto-generated docker-compose.yml:
+```yaml
+services:
+  app:
+    build: .
+    depends_on: [redis]
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+  celery-worker-ocr-analysis:
+    build: .
+    command: celery -A app.celery worker -Q ocr_analysis --concurrency=3
+    depends_on: [redis]
+  celery-worker-document-analysis:
+    build: .
+    command: celery -A app.celery worker -Q document_analysis --concurrency=2
+    depends_on: [redis]
+  celery-flower:
+    build: .
+    command: celery -A app.celery flower
+    ports: ["5555:5555"]
+```
+
+### PHASE 4A IMPLEMENTATION PLAN
+
+#### Core Infrastructure Tasks:
+- [ ] Create celery_app.py with Redis broker configuration
+- [ ] Create celery_config.py for dynamic queue generation
+- [ ] Create docker_compose_generator.py for infrastructure management
+- [ ] Add Celery dependency to requirements.txt
+
+#### API Enhancement Tasks:
+- [ ] Modify api_generator.py to detect async_execution from YAML
+- [ ] Add callback_url parameter to execute endpoints
+- [ ] Implement enhanced status endpoint
+- [ ] Add cancel and resume endpoints for async flows
+
+#### Flow Configuration Tasks:
+- [ ] Update yaml_loader.py to parse enhanced execution config
+- [ ] Add validation for execution configuration
+- [ ] Implement auto-detection logic for execution mode
+- [ ] Add per-flow concurrency settings
+
+#### Integration Tasks:
+- [ ] Integrate Celery tasks with existing FlowRunner
+- [ ] Connect with Phase 3 resumption capabilities
+- [ ] Add callback URL storage in Redis flow state
+- [ ] Test async execution with existing flows
+
+#### Benefits of Phase 4A:
+✅ Same endpoint, smart response based on YAML config
+✅ One queue per flow for simplicity
+✅ Separate worker per flow for isolation
+✅ Redis as unified broker/backend/state store
+✅ Dynamic infrastructure based on YAML flows
+✅ Future-ready callback URL support
+✅ Integration with Phase 3 resumption
+✅ No hardcoded queues - pure YAML-driven
+
+#### Testing Strategy:
+1. Test sync flows (existing behavior unchanged)
+2. Test async flows with new queue/worker system
+3. Test callback URL storage and retrieval
+4. Test status endpoint with progress information
+5. Test integration with Phase 3 resumption
+6. Test dynamic docker-compose generation
 
 ### PHASE 5: Advanced Features ⏳
 Status: Not Started

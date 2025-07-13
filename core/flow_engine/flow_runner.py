@@ -135,11 +135,22 @@ class FlowRunner:
         self.executor_registry.auto_discover_executors()
     
     async def initialize(self):
-        """Initialize Redis connection and flow runner components."""
+        """Initialize Redis connection, Celery configuration, and flow runner components."""
         try:
             if self.redis_enabled:
                 await self.state_store.initialize()
                 logger.info("✅ Redis StateStore initialized successfully")
+                
+                # Configure Celery with discovered flows
+                try:
+                    from .celery_config import configure_celery_with_flows
+                    from celery_app import celery_app
+                    configure_celery_with_flows(celery_app, self)
+                    logger.info("✅ Celery configured with dynamic flows")
+                except ImportError as e:
+                    logger.warning(f"⚠️  Celery not available: {e}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to configure Celery: {e}")
             else:
                 logger.info("⚠️  Redis persistence disabled - running in memory-only mode")
         except Exception as e:

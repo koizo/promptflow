@@ -3,6 +3,10 @@ fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 python-multipart>=0.0.6  # Required for file uploads
 
+# Async Task Queue
+celery>=5.3.0
+flower>=2.0.0  # Celery monitoring
+
 # AI/ML Libraries
 langchain>=0.1.0
 langchain-openai>=0.0.5
@@ -10,7 +14,7 @@ langchain-community>=0.0.13  # For document loaders
 transformers>=4.35.0
 torch>=2.1.0
 
-# Redis for state management
+# Redis for state management and Celery broker
 redis>=5.0.0
 
 # File processing
