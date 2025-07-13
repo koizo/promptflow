@@ -99,33 +99,37 @@ steps:
 
 # Output schema - defines what the API returns
 outputs:
-  - name: "success"
-    value: "{{ success }}"
-    description: "Whether the flow completed successfully"
-  
-  - name: "flow"
-    value: "document_analysis"
-    description: "Flow identifier"
-  
-  - name: "steps_completed"
-    value: "{{ completed_steps }}"
-    description: "List of successfully completed steps"
-  
   - name: "file_name"
     value: "{{ steps.handle_file.filename }}"
     description: "Name of the processed file"
+  
+  - name: "file_extension"
+    value: "{{ steps.handle_file.file_extension }}"
+    description: "File extension of the processed file"
   
   - name: "extracted_text"
     value: "{{ steps.extract_text.text }}"
     description: "Extracted text from document"
   
+  - name: "text_length"
+    value: "{{ steps.extract_text.text | length }}"
+    description: "Length of extracted text"
+  
   - name: "analysis"
-    value: "{{ steps.analyze_content.combined_analysis if steps.extract_text.chunked else steps.analyze_content.analysis }}"
+    value: "{{ steps.analyze_content.analysis }}"
     description: "LLM analysis result"
   
-  - name: "metadata"
-    value: "{{ metadata }}"
-    description: "Execution metadata and timing information"
+  - name: "provider_used"
+    value: "{{ inputs.provider }}"
+    description: "Document extraction provider used"
+  
+  - name: "llm_model_used"
+    value: "{{ inputs.llm_model }}"
+    description: "LLM model used for analysis"
+  
+  - name: "was_chunked"
+    value: "{{ steps.extract_text.chunked }}"
+    description: "Whether the document was processed in chunks"
 
 # Flow configuration
 config:
