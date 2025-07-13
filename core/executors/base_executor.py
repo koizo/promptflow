@@ -46,9 +46,13 @@ class FlowContext:
     
     Manages flow state, step results, and provides access to
     configuration and previous step outputs.
+    Now supports Redis persistence with unique flow_id tracking.
     """
     
-    def __init__(self, flow_name: str, inputs: Dict[str, Any]):
+    def __init__(self, flow_name: str, inputs: Dict[str, Any], flow_id: str = None):
+        import uuid
+        
+        self.flow_id = flow_id or str(uuid.uuid4())
         self.flow_name = flow_name
         self.inputs = inputs
         self.step_results: Dict[str, ExecutionResult] = {}
@@ -57,16 +61,20 @@ class FlowContext:
         self.completed_steps: List[str] = []
         self.failed_steps: List[str] = []
         
+        # Redis persistence settings
+        self.redis_enabled = True  # Flag for Redis persistence
+        self.persist_steps = True  # Flag for step-level persistence
+        
     def add_step_result(self, step_name: str, result: ExecutionResult) -> None:
         """Add result from a completed step."""
         self.step_results[step_name] = result
         
         if result.success:
             self.completed_steps.append(step_name)
-            logger.info(f"Step '{step_name}' completed successfully")
+            logger.info(f"Step '{step_name}' completed successfully (flow_id: {self.flow_id})")
         else:
             self.failed_steps.append(step_name)
-            logger.error(f"Step '{step_name}' failed: {result.error}")
+            logger.error(f"Step '{step_name}' failed: {result.error} (flow_id: {self.flow_id})")
     
     def get_step_output(self, step_name: str, output_key: str = None) -> Any:
         """Get output from a previous step."""

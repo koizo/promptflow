@@ -90,7 +90,7 @@ class ContextManager:
             FlowExecution instance
         """
         execution_id = str(uuid.uuid4())
-        context = FlowContext(flow_name, inputs)
+        context = FlowContext(flow_name, inputs, flow_id=execution_id)
         
         execution = FlowExecution(
             execution_id=execution_id,

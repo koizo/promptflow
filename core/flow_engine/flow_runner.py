@@ -4,6 +4,8 @@ Flow Runner
 Main orchestration engine for executing YAML-defined flows.
 Coordinates executors, manages dependencies, handles templating,
 and provides the primary interface for flow execution.
+
+Now integrated with Redis StateStore for persistent flow and step management.
 """
 
 import asyncio
@@ -12,12 +14,16 @@ from pathlib import Path
 import logging
 import importlib
 import inspect
+import uuid
+from datetime import datetime
 
 from .yaml_loader import YAMLFlowLoader, FlowDefinition, FlowStep
 from .template_engine import TemplateEngine
 from .context_manager import ContextManager, FlowExecution
 from ..executors.base_executor import BaseExecutor, ExecutionResult, FlowContext
 from .api_generator import FlowAPIGenerator
+from ..state_store import StateStore
+from ..schema import FlowState
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +112,7 @@ class FlowRunner:
     
     Orchestrates the execution of YAML-defined flows using registered executors.
     Handles dependency management, templating, error handling, and state tracking.
+    Now integrated with Redis StateStore for persistent flow and step management.
     """
     
     def __init__(self, flows_dir: Path = None):
@@ -116,6 +123,10 @@ class FlowRunner:
         self.executor_registry = ExecutorRegistry()
         self.api_generator = FlowAPIGenerator(self)
         
+        # Redis StateStore for flow persistence
+        self.state_store = StateStore()
+        self.redis_enabled = True  # Flag to enable/disable Redis persistence
+        
         # Load flows
         self.flows: Dict[str, FlowDefinition] = {}
         self.load_flows()
@@ -123,13 +134,30 @@ class FlowRunner:
         # Auto-discover executors
         self.executor_registry.auto_discover_executors()
     
+    async def initialize(self):
+        """Initialize Redis connection and flow runner components."""
+        try:
+            if self.redis_enabled:
+                await self.state_store.initialize()
+                logger.info("✅ Redis StateStore initialized successfully")
+            else:
+                logger.info("⚠️  Redis persistence disabled - running in memory-only mode")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize Redis StateStore: {e}")
+            logger.warning("🔄 Falling back to memory-only execution")
+            self.redis_enabled = False
+    
     async def start(self):
         """Start the flow runner."""
+        await self.initialize()
         await self.context_manager.start()
         logger.info("Flow runner started")
     
     async def stop(self):
         """Stop the flow runner."""
+        if self.redis_enabled and self.state_store:
+            await self.state_store.close()
+            logger.info("Redis StateStore connection closed")
         await self.context_manager.stop()
         logger.info("Flow runner stopped")
     
