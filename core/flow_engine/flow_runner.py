@@ -15,7 +15,7 @@ import logging
 import importlib
 import inspect
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .yaml_loader import YAMLFlowLoader, FlowDefinition, FlowStep
 from .template_engine import TemplateEngine
@@ -217,7 +217,7 @@ class FlowRunner:
     
     async def run_flow(self, flow_name: str, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Execute a flow with given inputs.
+        Execute a flow with given inputs and persistent state tracking.
         
         Args:
             flow_name: Name of the flow to execute
@@ -232,6 +232,10 @@ class FlowRunner:
         
         # Create execution context
         execution = self.context_manager.create_context(flow_name, inputs)
+        flow_id = execution.context.flow_id
+        
+        # Phase 2: Initialize flow state in Redis
+        await self._initialize_flow_state(flow_id, flow_name, inputs)
         
         try:
             # Validate inputs
@@ -246,6 +250,10 @@ class FlowRunner:
             # Mark as completed
             self.context_manager.update_execution(execution.execution_id, "completed")
             
+            # Phase 2: Update flow completion state
+            await self._update_flow_progress(flow_id, "completed", "completed")
+            await self._finalize_flow_state(flow_id, "completed", result)
+            
             return result
             
         except Exception as e:
@@ -254,6 +262,10 @@ class FlowRunner:
             
             # Mark as failed
             self.context_manager.update_execution(execution.execution_id, "failed", error_msg)
+            
+            # Phase 2: Update flow failure state
+            await self._update_flow_progress(flow_id, "failed", "failed")
+            await self._finalize_flow_state(flow_id, "failed", None, error_msg)
             
             raise
     
@@ -283,7 +295,7 @@ class FlowRunner:
                 await asyncio.gather(*tasks)
     
     async def _execute_step(self, step: FlowStep, context: FlowContext, flow: FlowDefinition):
-        """Execute a single step."""
+        """Execute a single step with state persistence."""
         logger.info(f"Executing step: {step.name}")
         
         # Check condition if specified
@@ -297,6 +309,9 @@ class FlowRunner:
             condition_result = self.template_engine.render_template(step.condition, template_context)
             if not self._evaluate_condition(condition_result):
                 logger.info(f"Step {step.name} skipped due to condition: {step.condition}")
+                # Save skipped step state
+                await self._save_step_state(context.flow_id, step.name, "skipped", 
+                                          metadata={"condition": step.condition, "reason": "condition_false"})
                 return
         
         # Get executor
@@ -311,12 +326,40 @@ class FlowRunner:
         
         rendered_config = self.template_engine.render_config(step.config, template_context)
         
-        # Execute step
-        context.current_step = step.name
-        result = await executor._safe_execute(context, rendered_config)
+        # Save step start state (Phase 2: Pre-step state saving)
+        await self._save_step_state(context.flow_id, step.name, "running", 
+                                   inputs=rendered_config, started_at=datetime.now(timezone.utc))
         
-        # Add result to context
-        context.add_step_result(step.name, result)
+        # Update flow progress
+        await self._update_flow_progress(context.flow_id, step.name, "running")
+        
+        try:
+            # Execute step
+            context.current_step = step.name
+            result = await executor._safe_execute(context, rendered_config)
+            
+            # Add result to context
+            context.add_step_result(step.name, result)
+            
+            if result.success:
+                # Save step completion state (Phase 2: Post-step state saving)
+                await self._save_step_state(context.flow_id, step.name, "completed",
+                                          outputs=result.outputs, completed_at=datetime.now(timezone.utc),
+                                          metadata={"execution_time": result.execution_time})
+                logger.info(f"✅ Step {step.name} completed successfully")
+            else:
+                # Save step failure state
+                await self._save_step_state(context.flow_id, step.name, "failed",
+                                          error=result.error, completed_at=datetime.now(timezone.utc),
+                                          metadata={"execution_time": result.execution_time})
+                logger.error(f"❌ Step {step.name} failed: {result.error}")
+                
+        except Exception as e:
+            # Save step failure state for unexpected errors
+            await self._save_step_state(context.flow_id, step.name, "failed",
+                                      error=str(e), completed_at=datetime.now(timezone.utc))
+            logger.error(f"❌ Step {step.name} failed with exception: {str(e)}")
+            raise
         
         if not result.success:
             raise RuntimeError(f"Step {step.name} failed: {result.error}")
@@ -399,6 +442,520 @@ class FlowRunner:
     def generate_router_for_flow(self, flow_name: str):
         """Generate FastAPI router for a specific flow."""
         return self.api_generator.generate_router_for_flow(flow_name)
+    
+    # ========================================
+    # PHASE 2: Step-by-Step State Persistence
+    # ========================================
+    
+    async def _save_step_state(self, flow_id: str, step_name: str, status: str, 
+                              inputs: Optional[Dict[str, Any]] = None,
+                              outputs: Optional[Dict[str, Any]] = None,
+                              error: Optional[str] = None,
+                              started_at: Optional[datetime] = None,
+                              completed_at: Optional[datetime] = None,
+                              metadata: Optional[Dict[str, Any]] = None):
+        """
+        Save step state to Redis for persistence and resumption.
+        
+        Args:
+            flow_id: Unique flow execution ID
+            step_name: Name of the step
+            status: Step status (running, completed, failed, skipped)
+            inputs: Step input parameters
+            outputs: Step output results
+            error: Error message if step failed
+            started_at: Step start timestamp
+            completed_at: Step completion timestamp
+            metadata: Additional metadata (execution_time, etc.)
+        """
+        if not self.redis_enabled or not self.state_store:
+            return  # Skip if Redis not available
+        
+        try:
+            # Get existing flow state or create new one
+            flow_state = await self.state_store.get_flow_state(flow_id)
+            if not flow_state:
+                # Create new flow state if it doesn't exist
+                flow_state = FlowState(
+                    flow_id=flow_id,
+                    flow_name="unknown",  # Will be updated by _update_flow_progress
+                    status="running",
+                    inputs={},  # Required field
+                    started_at=datetime.now(timezone.utc),  # Required field
+                    steps=[],
+                    created_at=datetime.now(timezone.utc).isoformat(),  # Legacy field as string
+                    updated_at=datetime.now(timezone.utc).isoformat()   # Legacy field as string
+                )
+            
+            # Find existing step state or create new one
+            step_state = None
+            for step in flow_state.steps:
+                if step.step_name == step_name:
+                    step_state = step
+                    break
+            
+            if not step_state:
+                # Import FlowStepState here to avoid circular imports
+                from ..schema import FlowStepState, StepStatus
+                step_state = FlowStepState(
+                    step_name=step_name,
+                    status=StepStatus(status) if status in ["pending", "running", "completed", "failed", "skipped"] else status,
+                    started_at=started_at or datetime.now(timezone.utc)
+                )
+                flow_state.steps.append(step_state)
+            
+            # Update step state
+            if status in ["pending", "running", "completed", "failed", "skipped"]:
+                from ..schema import StepStatus
+                step_state.status = StepStatus(status)
+            else:
+                step_state.status = status
+            if inputs is not None:
+                step_state.inputs = inputs
+            if outputs is not None:
+                step_state.outputs = outputs
+            if error is not None:
+                step_state.error = error
+            if started_at is not None:
+                step_state.started_at = started_at
+            if completed_at is not None:
+                step_state.completed_at = completed_at
+            if metadata is not None:
+                step_state.metadata = metadata
+            
+            # Update flow state timestamps
+            flow_state.updated_at = datetime.now(timezone.utc).isoformat()
+            
+            # Save updated flow state
+            await self.state_store.save_flow_state(flow_state)
+            
+            logger.debug(f"💾 Saved step state: {flow_id}/{step_name} -> {status}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to save step state for {flow_id}/{step_name}: {e}")
+            # Don't raise exception - state persistence should not break flow execution
+    
+    async def _update_flow_progress(self, flow_id: str, current_step: str, status: str):
+        """
+        Update overall flow progress in Redis.
+        
+        Args:
+            flow_id: Unique flow execution ID
+            current_step: Name of the currently executing step
+            status: Overall flow status (running, completed, failed)
+        """
+        if not self.redis_enabled or not self.state_store:
+            return  # Skip if Redis not available
+        
+        try:
+            # Get existing flow state
+            flow_state = await self.state_store.get_flow_state(flow_id)
+            if flow_state:
+                # Update flow progress
+                flow_state.current_step = current_step
+                flow_state.status = status
+                flow_state.updated_at = datetime.now(timezone.utc)
+                
+                # Calculate progress statistics
+                total_steps = len(flow_state.steps)
+                completed_steps = len([s for s in flow_state.steps if s.status == "completed"])
+                failed_steps = len([s for s in flow_state.steps if s.status == "failed"])
+                
+                # Update metadata with progress info
+                if not flow_state.metadata:
+                    flow_state.metadata = {}
+                
+                flow_state.metadata.update({
+                    "total_steps": total_steps,
+                    "completed_steps": completed_steps,
+                    "failed_steps": failed_steps,
+                    "progress_percentage": (completed_steps / total_steps * 100) if total_steps > 0 else 0
+                })
+                
+                # Save updated flow state
+                await self.state_store.save_flow_state(flow_state)
+                
+                logger.debug(f"📊 Updated flow progress: {flow_id} -> {current_step} ({status})")
+            
+        except Exception as e:
+            logger.warning(f"Failed to update flow progress for {flow_id}: {e}")
+            # Don't raise exception - progress tracking should not break flow execution
+    
+    async def _initialize_flow_state(self, flow_id: str, flow_name: str, inputs: Dict[str, Any]):
+        """
+        Initialize flow state in Redis at the start of execution.
+        
+        Args:
+            flow_id: Unique flow execution ID
+            flow_name: Name of the flow being executed
+            inputs: Flow input parameters
+        """
+        if not self.redis_enabled or not self.state_store:
+            return  # Skip if Redis not available
+        
+        try:
+            # Create initial flow state
+            flow_state = FlowState(
+                flow_id=flow_id,
+                flow_name=flow_name,
+                status="running",
+                inputs=inputs,  # Required field
+                started_at=datetime.now(timezone.utc),  # Required field
+                steps=[],
+                created_at=datetime.now(timezone.utc).isoformat(),  # Legacy field as string
+                updated_at=datetime.now(timezone.utc).isoformat(),  # Legacy field as string
+                metadata={
+                    "total_steps": 0,
+                    "completed_steps": 0,
+                    "failed_steps": 0,
+                    "progress_percentage": 0
+                }
+            )
+            
+            # Save initial flow state
+            await self.state_store.save_flow_state(flow_state)
+            
+            logger.info(f"🚀 Initialized flow state: {flow_id} ({flow_name})")
+            
+        except Exception as e:
+            logger.warning(f"Failed to initialize flow state for {flow_id}: {e}")
+            # Don't raise exception - state initialization should not break flow execution
+    
+    async def _finalize_flow_state(self, flow_id: str, status: str, 
+                                  result: Optional[Dict[str, Any]] = None,
+                                  error: Optional[str] = None):
+        """
+        Finalize flow state in Redis at the end of execution.
+        
+        Args:
+            flow_id: Unique flow execution ID
+            status: Final flow status (completed, failed)
+            result: Flow execution result (if successful)
+            error: Error message (if failed)
+        """
+        if not self.redis_enabled or not self.state_store:
+            return  # Skip if Redis not available
+        
+        try:
+            # Get existing flow state
+            flow_state = await self.state_store.get_flow_state(flow_id)
+            if flow_state:
+                # Update final flow state
+                flow_state.status = status
+                flow_state.completed_at = datetime.now(timezone.utc)
+                flow_state.updated_at = datetime.now(timezone.utc).isoformat()  # Legacy field as string
+                
+                if result is not None:
+                    flow_state.outputs = result
+                if error is not None:
+                    # Store error in metadata since FlowState doesn't have error field
+                    if not flow_state.metadata:
+                        flow_state.metadata = {}
+                    flow_state.metadata["error"] = error
+                
+                # Calculate final execution time
+                if flow_state.started_at:
+                    execution_time = (flow_state.completed_at - flow_state.started_at).total_seconds()
+                    flow_state.total_execution_time = execution_time
+                    if not flow_state.metadata:
+                        flow_state.metadata = {}
+                    flow_state.metadata["total_execution_time"] = execution_time
+                
+                # Save final flow state
+                await self.state_store.save_flow_state(flow_state)
+                
+                status_emoji = "✅" if status == "completed" else "❌"
+                logger.info(f"{status_emoji} Finalized flow state: {flow_id} -> {status}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to finalize flow state for {flow_id}: {e}")
+            # Don't raise exception - state finalization should not break flow execution
+    
+    # ========================================
+    # PHASE 3: Flow Resumption & Recovery
+    # ========================================
+    
+    async def resume_flow(self, flow_id: str) -> Dict[str, Any]:
+        """
+        Resume a paused or failed flow from last successful step.
+        
+        Args:
+            flow_id: Unique flow execution ID to resume
+            
+        Returns:
+            Flow execution result
+            
+        Raises:
+            ValueError: If flow not found or cannot be resumed
+        """
+        if not self.redis_enabled or not self.state_store:
+            raise ValueError("Redis not available - cannot resume flows without persistent state")
+        
+        try:
+            # Get existing flow state
+            flow_state = await self.state_store.get_flow_state(flow_id)
+            if not flow_state:
+                raise ValueError(f"Flow {flow_id} not found in Redis")
+            
+            # Check if flow can be resumed
+            if flow_state.status == "completed":
+                logger.info(f"Flow {flow_id} already completed")
+                return flow_state.outputs or {"message": "Flow already completed"}
+            
+            if flow_state.status not in ["failed", "running"]:
+                raise ValueError(f"Flow {flow_id} cannot be resumed (status: {flow_state.status})")
+            
+            # Get the flow definition
+            flow = self.get_flow(flow_state.flow_name)
+            if not flow:
+                raise ValueError(f"Flow definition '{flow_state.flow_name}' not found")
+            
+            logger.info(f"🔄 Resuming flow: {flow_id} ({flow_state.flow_name})")
+            
+            # Find last completed step
+            completed_steps = [s.step_name for s in flow_state.steps if s.status == "completed"]
+            failed_steps = [s.step_name for s in flow_state.steps if s.status == "failed"]
+            
+            logger.info(f"Flow resume status - Completed: {len(completed_steps)}, Failed: {len(failed_steps)}")
+            
+            # Resume from appropriate point
+            result = await self._execute_from_step(flow_state, flow, completed_steps)
+            
+            # Update flow completion state
+            await self._update_flow_progress(flow_id, "completed", "completed")
+            await self._finalize_flow_state(flow_id, "completed", result)
+            
+            logger.info(f"✅ Flow {flow_id} resumed and completed successfully")
+            return result
+            
+        except Exception as e:
+            error_msg = f"Flow resumption failed: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            
+            # Update flow failure state
+            await self._update_flow_progress(flow_id, "failed", "failed")
+            await self._finalize_flow_state(flow_id, "failed", None, error_msg)
+            
+            raise
+    
+    async def retry_failed_step(self, flow_id: str, step_name: str) -> Dict[str, Any]:
+        """
+        Retry a specific failed step in a flow.
+        
+        Args:
+            flow_id: Unique flow execution ID
+            step_name: Name of the step to retry
+            
+        Returns:
+            Step execution result
+            
+        Raises:
+            ValueError: If flow/step not found or cannot be retried
+        """
+        if not self.redis_enabled or not self.state_store:
+            raise ValueError("Redis not available - cannot retry steps without persistent state")
+        
+        try:
+            # Get existing flow state
+            flow_state = await self.state_store.get_flow_state(flow_id)
+            if not flow_state:
+                raise ValueError(f"Flow {flow_id} not found in Redis")
+            
+            # Find the failed step
+            failed_step = flow_state.get_step_state(step_name)
+            if not failed_step:
+                raise ValueError(f"Step '{step_name}' not found in flow {flow_id}")
+            
+            if failed_step.status != "failed":
+                raise ValueError(f"Step '{step_name}' is not in failed state (current: {failed_step.status})")
+            
+            # Get the flow definition
+            flow = self.get_flow(flow_state.flow_name)
+            if not flow:
+                raise ValueError(f"Flow definition '{flow_state.flow_name}' not found")
+            
+            # Get the step definition
+            step_def = flow.get_step(step_name)
+            if not step_def:
+                raise ValueError(f"Step definition '{step_name}' not found in flow")
+            
+            logger.info(f"🔄 Retrying failed step: {flow_id}/{step_name}")
+            
+            # Reset step state for retry
+            await self._reset_step_state(flow_id, step_name)
+            
+            # Execute the single step
+            result = await self._execute_single_step(flow_state, flow, step_def)
+            
+            logger.info(f"✅ Step {step_name} retried successfully")
+            return result
+            
+        except Exception as e:
+            error_msg = f"Step retry failed: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            
+            # Update step failure state
+            await self._save_step_state(flow_id, step_name, "failed", error=error_msg)
+            
+            raise
+    
+    async def cancel_flow(self, flow_id: str) -> Dict[str, Any]:
+        """
+        Cancel a running flow.
+        
+        Args:
+            flow_id: Unique flow execution ID to cancel
+            
+        Returns:
+            Cancellation result
+        """
+        if not self.redis_enabled or not self.state_store:
+            raise ValueError("Redis not available - cannot cancel flows without persistent state")
+        
+        try:
+            # Get existing flow state
+            flow_state = await self.state_store.get_flow_state(flow_id)
+            if not flow_state:
+                raise ValueError(f"Flow {flow_id} not found in Redis")
+            
+            if flow_state.status in ["completed", "failed", "cancelled"]:
+                return {"message": f"Flow {flow_id} already {flow_state.status}"}
+            
+            logger.info(f"🛑 Cancelling flow: {flow_id}")
+            
+            # Update flow state to cancelled
+            await self._update_flow_progress(flow_id, "cancelled", "cancelled")
+            await self._finalize_flow_state(flow_id, "cancelled", None, "Flow cancelled by user")
+            
+            logger.info(f"✅ Flow {flow_id} cancelled successfully")
+            return {"message": f"Flow {flow_id} cancelled", "flow_id": flow_id}
+            
+        except Exception as e:
+            error_msg = f"Flow cancellation failed: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            raise
+    
+    async def _execute_from_step(self, flow_state: 'FlowState', flow: 'FlowDefinition', completed_steps: List[str]) -> Dict[str, Any]:
+        """
+        Execute flow from a specific step, skipping already completed steps.
+        
+        Args:
+            flow_state: Current flow state from Redis
+            flow: Flow definition
+            completed_steps: List of already completed step names
+            
+        Returns:
+            Flow execution result
+        """
+        # Reconstruct execution context from flow state
+        execution = self._reconstruct_execution_context(flow_state, flow)
+        
+        # Get execution order (topological sort)
+        execution_order = flow.get_execution_order()
+        
+        # Execute remaining steps
+        for step_batch in execution_order:
+            for step_name in step_batch:
+                # Skip already completed steps
+                if step_name in completed_steps:
+                    logger.info(f"⏭️  Skipping completed step: {step_name}")
+                    continue
+                
+                # Execute the step
+                step = flow.get_step(step_name)
+                await self._execute_step(step, execution.context, flow)
+        
+        # Build final output
+        result = await self._build_output(flow, execution)
+        return result
+    
+    async def _execute_single_step(self, flow_state: 'FlowState', flow: 'FlowDefinition', step_def: 'FlowStep') -> Dict[str, Any]:
+        """
+        Execute a single step with proper context reconstruction.
+        
+        Args:
+            flow_state: Current flow state from Redis
+            flow: Flow definition
+            step_def: Step definition to execute
+            
+        Returns:
+            Step execution result
+        """
+        # Reconstruct execution context from flow state
+        execution = self._reconstruct_execution_context(flow_state, flow)
+        
+        # Execute the step
+        await self._execute_step(step_def, execution.context, flow)
+        
+        # Return step result
+        step_result = execution.context.step_results.get(step_def.name, {})
+        return {"step_name": step_def.name, "result": step_result}
+    
+    async def _reset_step_state(self, flow_id: str, step_name: str):
+        """
+        Reset a step state for retry.
+        
+        Args:
+            flow_id: Unique flow execution ID
+            step_name: Name of the step to reset
+        """
+        if not self.redis_enabled or not self.state_store:
+            return
+        
+        try:
+            flow_state = await self.state_store.get_flow_state(flow_id)
+            if flow_state:
+                step_state = flow_state.get_step_state(step_name)
+                if step_state:
+                    # Reset step state for retry
+                    step_state.status = "pending"
+                    step_state.error = None
+                    step_state.outputs = None
+                    step_state.started_at = None
+                    step_state.completed_at = None
+                    step_state.retry_count = getattr(step_state, 'retry_count', 0) + 1
+                    
+                    # Save updated flow state
+                    await self.state_store.save_flow_state(flow_state)
+                    
+                    logger.info(f"🔄 Reset step state for retry: {flow_id}/{step_name} (attempt #{step_state.retry_count})")
+        
+        except Exception as e:
+            logger.warning(f"Failed to reset step state for {flow_id}/{step_name}: {e}")
+    
+    def _reconstruct_execution_context(self, flow_state: 'FlowState', flow: 'FlowDefinition') -> 'FlowExecution':
+        """
+        Reconstruct execution context from saved flow state.
+        
+        Args:
+            flow_state: Saved flow state from Redis
+            flow: Flow definition
+            
+        Returns:
+            Reconstructed FlowExecution context
+        """
+        # Create new execution context
+        execution = self.context_manager.create_context(flow_state.flow_name, flow_state.inputs)
+        
+        # Restore step results from completed steps
+        for step_state in flow_state.steps:
+            if step_state.status == "completed" and step_state.outputs:
+                # Create ExecutionResult from saved outputs
+                from ..executors.base_executor import ExecutionResult
+                execution_result = ExecutionResult(
+                    success=True,
+                    outputs=step_state.outputs,
+                    error=None,
+                    execution_time=getattr(step_state, 'execution_time', 0.0)
+                )
+                execution.context.add_step_result(step_state.step_name, execution_result)
+        
+        # Set flow ID to match the resumed flow
+        execution.context.flow_id = flow_state.flow_id
+        
+        logger.debug(f"🔧 Reconstructed execution context for {flow_state.flow_id} with {len(flow_state.steps)} steps")
+        
+        return execution
 
 
 # Global flow runner instance
