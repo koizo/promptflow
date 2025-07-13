@@ -1,0 +1,10 @@
+This is a test document for the AI Inference Platform.
+
+Key Features:
+- Modular architecture
+- YAML-based flow definitions  
+- Async and sync execution modes
+- Multi-modal input support
+- LLM integration
+
+The platform supports various document formats including PDF, Word, Excel, PowerPoint, and plain text files like this one.

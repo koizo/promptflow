@@ -162,8 +162,8 @@ class FlowAPIGenerator:
                         # Use default value if no form data provided
                         inputs[inp.name] = inp.default
                         self.logger.info(f"Using default value for '{inp.name}': {inp.default}")
-                
-                self.logger.info(f"Flow {flow_def.name} received inputs: {list(inputs.keys())}")
+                #FIXME: Activate again in the future
+                #self.logger.info(f"Flow {flow_def.name} received inputs: {list(inputs.keys())}")
                 for key, value in inputs.items():
                     if key != 'file':  # Don't log file content
                         self.logger.info(f"  {key}: {value}")
@@ -178,9 +178,72 @@ class FlowAPIGenerator:
                     # Async execution
                     flow_id = str(uuid.uuid4())
                     
-                    # Import and submit to Celery
+                    # Check if first step is file handler - execute it synchronously
+                    first_step = flow_def.steps[0] if flow_def.steps else None
+                    processed_inputs = validated_inputs.copy()
+                    
+                    if first_step and first_step.executor == "file_handler":
+                        logger.info(f"Executing file handler step synchronously for flow {flow_id}")
+                        
+                        try:
+                            # Execute file handler synchronously
+                            file_outputs = await self._execute_file_handler_sync(first_step, validated_inputs)
+                            
+                            # COMPLETELY REMOVE binary content and replace with file metadata + temp path
+                            if 'file' in processed_inputs:
+                                processed_inputs['file'] = {
+                                    'filename': processed_inputs['file']['filename'],
+                                    'content_type': processed_inputs['file']['content_type'],
+                                    'size': processed_inputs['file']['size'],
+                                    'temp_path': file_outputs.get('temp_path')
+                                    # NOTE: 'content' field is intentionally removed to eliminate binary data
+                                }
+                            
+                            # Add file handler outputs to processed inputs for template resolution
+                            processed_inputs['file_handler_outputs'] = file_outputs
+                            
+                            # Add step outputs for template resolution in remaining steps
+                            processed_inputs['steps'] = {
+                                'handle_file': file_outputs
+                            }
+                            
+                            logger.info(f"File handler completed, temp file: {file_outputs.get('temp_path')}")
+                            logger.info(f"Binary content removed from processed_inputs for Celery")
+                            
+                        except Exception as e:
+                            logger.error(f"File handler failed: {e}")
+                            raise HTTPException(status_code=400, detail=f"File processing failed: {str(e)}")
+                    
+                    # CREATE REDIS RECORD FIRST (before Celery submission) with processed inputs
+                    print(f"DEBUG: About to initialize flow state for {flow_id} with status 'queued'")
+                    await self.flow_runner._initialize_flow_state(flow_id, flow_def.name, processed_inputs, status="queued")
+                    print(f"DEBUG: Flow state initialization completed for {flow_id}")
+                    
+                    # DEBUG: Verify binary content removal for file upload endpoint
+                    if 'file' in processed_inputs:
+                        file_data = processed_inputs['file']
+                        has_content = 'content' in file_data
+                        has_temp_path = 'temp_path' in file_data
+                        logger.info(f"DEBUG: File upload - Processed inputs for Celery - has_content: {has_content}, has_temp_path: {has_temp_path}")
+                        if has_temp_path:
+                            logger.info(f"DEBUG: File upload - Temp path: {file_data['temp_path']}")
+                    
+                    # THEN submit to Celery with processed inputs and modified flow
                     from celery_app import execute_flow_async
-                    task = execute_flow_async.delay(flow_def.name, validated_inputs, flow_id, callback_url)
+                    
+                    # Create modified flow definition without file handler step if it was processed
+                    flow_for_celery = flow_def
+                    if first_step and first_step.executor == "file_handler":
+                        # Create a copy of flow definition without the first step
+                        import copy
+                        flow_for_celery = copy.deepcopy(flow_def)
+                        flow_for_celery.steps = flow_def.steps[1:]  # Skip file handler step
+                        logger.info(f"Modified flow for Celery: {len(flow_for_celery.steps)} steps (file handler excluded)")
+                    
+                    task = execute_flow_async.apply_async(
+                        args=[flow_for_celery.name, processed_inputs, flow_id, callback_url],
+                        queue=flow_def.name  # Route to flow-specific queue
+                    )
                     
                     # Get execution config for response
                     execution_config = flow_def.config.get('execution', {})
@@ -241,9 +304,71 @@ class FlowAPIGenerator:
                     # Async execution
                     flow_id = str(uuid.uuid4())
                     
-                    # Import and submit to Celery
+                    # Check if first step is file handler - execute it synchronously
+                    first_step = flow_def.steps[0] if flow_def.steps else None
+                    processed_inputs = inputs.copy()
+                    
+                    if first_step and first_step.executor == "file_handler":
+                        logger.info(f"Executing file handler step synchronously for flow {flow_id}")
+                        
+                        try:
+                            # Execute file handler synchronously
+                            file_outputs = await self._execute_file_handler_sync(first_step, inputs)
+                            
+                            # COMPLETELY REMOVE binary content and replace with file metadata + temp path
+                            if 'file' in processed_inputs:
+                                processed_inputs['file'] = {
+                                    'filename': processed_inputs['file']['filename'],
+                                    'content_type': processed_inputs['file']['content_type'],
+                                    'size': processed_inputs['file']['size'],
+                                    'temp_path': file_outputs.get('temp_path')
+                                    # NOTE: 'content' field is intentionally removed to eliminate binary data
+                                }
+                            
+                            # Add file handler outputs to processed inputs for template resolution
+                            processed_inputs['file_handler_outputs'] = file_outputs
+                            
+                            # Add step outputs for template resolution in remaining steps
+                            processed_inputs['steps'] = {
+                                'handle_file': file_outputs
+                            }
+                            
+                            logger.info(f"File handler completed, temp file: {file_outputs.get('temp_path')}")
+                            
+                        except Exception as e:
+                            logger.error(f"File handler failed: {e}")
+                            raise HTTPException(status_code=400, detail=f"File processing failed: {str(e)}")
+                    
+                    # CREATE REDIS RECORD FIRST (before Celery submission) with processed inputs
+                    print(f"DEBUG: About to initialize flow state for {flow_id} with status 'queued'")
+                    await self.flow_runner._initialize_flow_state(flow_id, flow_def.name, processed_inputs, status="queued")
+                    print(f"DEBUG: Flow state initialization completed for {flow_id}")
+                    
+                    # DEBUG: Verify binary content removal for JSON endpoint
+                    if 'file' in processed_inputs:
+                        file_data = processed_inputs['file']
+                        has_content = 'content' in file_data
+                        has_temp_path = 'temp_path' in file_data
+                        logger.info(f"DEBUG: JSON endpoint - Processed inputs for Celery - has_content: {has_content}, has_temp_path: {has_temp_path}")
+                        if has_temp_path:
+                            logger.info(f"DEBUG: JSON endpoint - Temp path: {file_data['temp_path']}")
+                    
+                    # THEN submit to Celery with processed inputs and modified flow
                     from celery_app import execute_flow_async
-                    task = execute_flow_async.delay(flow_def.name, inputs, flow_id, callback_url)
+                    
+                    # Create modified flow definition without file handler step if it was processed
+                    flow_for_celery = flow_def
+                    if first_step and first_step.executor == "file_handler":
+                        # Create a copy of flow definition without the first step
+                        import copy
+                        flow_for_celery = copy.deepcopy(flow_def)
+                        flow_for_celery.steps = flow_def.steps[1:]  # Skip file handler step
+                        logger.info(f"Modified flow for Celery: {len(flow_for_celery.steps)} steps (file handler excluded)")
+                    
+                    task = execute_flow_async.apply_async(
+                        args=[flow_for_celery.name, processed_inputs, flow_id, callback_url],
+                        queue=flow_def.name  # Route to flow-specific queue
+                    )
                     
                     # Get execution config for response
                     execution_config = flow_def.config.get('execution', {})
@@ -485,11 +610,128 @@ class FlowAPIGenerator:
                     raise HTTPException(status_code=500, detail=str(e))
     
     def _validate_inputs(self, inputs: Dict[str, Any], flow_def: FlowDefinition) -> Dict[str, Any]:
+        """
+        Validate flow inputs against the flow definition.
+        
+        Args:
+            inputs: Input parameters to validate
+            flow_def: Flow definition containing input schema
+            
+        Returns:
+            Validated inputs dictionary
+        """
+        validated = {}
+        
+        for flow_input in flow_def.inputs:
+            value = inputs.get(flow_input.name)
+            
+            # Check required inputs
+            if flow_input.required and value is None:
+                raise ValueError(f"Required input '{flow_input.name}' is missing")
+            
+            # Use default value if not provided
+            if value is None and flow_input.default is not None:
+                value = flow_input.default
+            
+            # Validate enum values
+            if value is not None and flow_input.enum and value not in flow_input.enum:
+                raise ValueError(f"Input '{flow_input.name}' must be one of {flow_input.enum}, got '{value}'")
+            
+            if value is not None:
+                validated[flow_input.name] = value
+        
+        return validated
+
+    async def _execute_file_handler_sync(self, step, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute file handler step synchronously in the API endpoint.
+        
+        Args:
+            step: The file handler step definition
+            inputs: Flow inputs containing file data
+            
+        Returns:
+            Dictionary containing file handler outputs (temp_path, filename, etc.)
+        """
+        from ..executors.file_handler import FileHandler
+        from ..executors.base_executor import FlowContext
+        
+        # Create a temporary flow context for the file handler
+        context = FlowContext(
+            flow_name="temp_file_handler",
+            inputs=inputs,
+            flow_id="temp_file_handler"
+        )
+        
+        # Set current step for context
+        context.current_step = step.name
+        
+        # Initialize file handler executor
+        file_handler = FileHandler(step.name)
+        
+        # Preserve temp files for async processing (they'll be cleaned up by the worker)
+        file_handler.preserve_temp_files = True
+        
+        # Prepare config by resolving template variables
+        config = {}
+        for key, value in step.config.items():
+            if isinstance(value, str) and "{{" in value:
+                # Simple template resolution for file handler
+                if value == "{{ inputs.file.content }}":
+                    file_data = inputs.get('file', {})
+                    # Handle both binary content and temp path scenarios
+                    if 'content' in file_data:
+                        config[key] = file_data.get('content')
+                    elif 'temp_path' in file_data:
+                        # If we already have a temp path, read the file content
+                        import pathlib
+                        temp_path = pathlib.Path(file_data['temp_path'])
+                        if temp_path.exists():
+                            config[key] = temp_path.read_bytes()
+                        else:
+                            raise ValueError(f"Temp file not found: {temp_path}")
+                    else:
+                        raise ValueError("No file content or temp path available")
+                elif value == "{{ inputs.file.filename }}":
+                    config[key] = inputs.get('file', {}).get('filename')
+                elif value == "{{ inputs.file.size }}":
+                    config[key] = inputs.get('file', {}).get('size')
+                elif value == "{{ inputs.file.content_type }}":
+                    config[key] = inputs.get('file', {}).get('content_type')
+                else:
+                    # For other templates, try basic resolution
+                    resolved_value = value
+                    if "{{ inputs." in value:
+                        # Extract the path and resolve it
+                        import re
+                        matches = re.findall(r'{{ inputs\.([^}]+) }}', value)
+                        for match in matches:
+                            keys = match.split('.')
+                            current = inputs
+                            for k in keys:
+                                if isinstance(current, dict) and k in current:
+                                    current = current[k]
+                                else:
+                                    current = None
+                                    break
+                            if current is not None:
+                                resolved_value = resolved_value.replace(f'{{{{ inputs.{match} }}}}', str(current))
+                    config[key] = resolved_value
+            else:
+                config[key] = value
+        
+        # Execute file handler
+        result = await file_handler.execute(context, config)
+        
+        if not result.success:
+            raise ValueError(f"File handler failed: {result.error}")
+        
+        return result.outputs
         """Validate inputs against flow definition."""
         validated = {}
         
         self.logger.info(f"Validating inputs for flow {flow_def.name}")
-        self.logger.info(f"Received inputs: {inputs}")
+        #self.logger.info(f"Received inputs: {inputs}")
         
         for input_def in flow_def.inputs:
             value = inputs.get(input_def.name)

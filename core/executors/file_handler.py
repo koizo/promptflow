@@ -29,6 +29,7 @@ class FileHandler(BaseExecutor):
     def __init__(self, name: str = None):
         super().__init__(name)
         self.temp_files: List[str] = []  # Track temp files for cleanup
+        self.preserve_temp_files = False  # Flag to prevent cleanup for async processing
     
     async def execute(self, context: FlowContext, config: Dict[str, Any]) -> ExecutionResult:
         """
@@ -48,6 +49,49 @@ class FileHandler(BaseExecutor):
             file_content = config.get('file_content')
             filename = config.get('filename')
             
+            # Check if we're in a worker context with an existing temp file
+            # This happens when the file handler was already executed synchronously in the API
+            temp_path_from_input = None
+            if context.inputs.get('file', {}).get('temp_path'):
+                temp_path_from_input = context.inputs['file']['temp_path']
+                self.logger.info(f"Worker context detected - using existing temp file: {temp_path_from_input}")
+            
+            # If we have a temp path but no file content, we're in worker context
+            if temp_path_from_input and not file_content:
+                # Validate that the temp file exists
+                temp_file_path = Path(temp_path_from_input)
+                if not temp_file_path.exists():
+                    return ExecutionResult(
+                        success=False,
+                        error=f"Temp file not found: {temp_path_from_input}"
+                    )
+                
+                # Use existing temp file - return its information
+                file_extension = temp_file_path.suffix.lower()
+                file_size = temp_file_path.stat().st_size
+                
+                self.logger.info(f"Using existing temp file: {temp_path_from_input} ({file_extension}, {file_size} bytes)")
+                
+                return ExecutionResult(
+                    success=True,
+                    outputs={
+                        "temp_path": str(temp_file_path),
+                        "filename": filename or temp_file_path.name,
+                        "file_extension": file_extension,
+                        "file_size": file_size,
+                        "temp_file_created": False,  # We didn't create it, just reused it
+                        "operation": "file_reuse",
+                        "validation_performed": False,  # Skip validation for existing files
+                        "file_info": {
+                            "name": filename or temp_file_path.name,
+                            "extension": file_extension,
+                            "size": file_size,
+                            "temp_path": str(temp_file_path)
+                        }
+                    }
+                )
+            
+            # Original logic for when we have file content
             if not file_content:
                 return ExecutionResult(
                     success=False,
@@ -156,8 +200,10 @@ class FileHandler(BaseExecutor):
                 temp_path = Path(temp_dir) / f"{stem}_{counter}{file_extension}"
                 counter += 1
         else:
-            # Create temporary file with proper extension
-            temp_fd, temp_path_str = tempfile.mkstemp(suffix=file_extension)
+            # Create temporary file with proper extension in shared directory
+            shared_temp_dir = Path("/app/temp")
+            shared_temp_dir.mkdir(exist_ok=True)  # Ensure directory exists
+            temp_fd, temp_path_str = tempfile.mkstemp(suffix=file_extension, dir=str(shared_temp_dir))
             temp_path = Path(temp_path_str)
             os.close(temp_fd)  # Close the file descriptor
         
@@ -171,6 +217,10 @@ class FileHandler(BaseExecutor):
                     f.write(file_content.read())
                 else:
                     f.write(file_content)
+        
+        # Set file permissions to be readable by all containers (644)
+        import stat
+        os.chmod(temp_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
         
         # Track temp file for cleanup
         self.temp_files.append(str(temp_path))
@@ -254,4 +304,5 @@ class FileHandler(BaseExecutor):
     
     def __del__(self):
         """Cleanup temp files when executor is destroyed."""
-        self.cleanup_temp_files()
+        if not self.preserve_temp_files:
+            self.cleanup_temp_files()

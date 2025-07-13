@@ -592,7 +592,7 @@ class FlowRunner:
             logger.warning(f"Failed to update flow progress for {flow_id}: {e}")
             # Don't raise exception - progress tracking should not break flow execution
     
-    async def _initialize_flow_state(self, flow_id: str, flow_name: str, inputs: Dict[str, Any]):
+    async def _initialize_flow_state(self, flow_id: str, flow_name: str, inputs: Dict[str, Any], status: str = "running"):
         """
         Initialize flow state in Redis at the start of execution.
         
@@ -600,17 +600,34 @@ class FlowRunner:
             flow_id: Unique flow execution ID
             flow_name: Name of the flow being executed
             inputs: Flow input parameters
+            status: Initial status (default: "running", can be "queued" for async API)
         """
         if not self.redis_enabled or not self.state_store:
+            logger.warning(f"Failed to initialize flow state for {flow_id}: Redis not available")
             return  # Skip if Redis not available
         
         try:
-            # Create initial flow state
+            # Create a sanitized copy of inputs without binary data
+            sanitized_inputs = {}
+            for key, value in inputs.items():
+                if key == 'file' and isinstance(value, dict):
+                    # Store file metadata instead of binary content
+                    sanitized_inputs[key] = {
+                        'filename': value.get('filename', 'unknown'),
+                        'content_type': value.get('content_type', 'application/octet-stream'),
+                        'size': value.get('size', 0)
+                    }
+                else:
+                    sanitized_inputs[key] = value
+            
+            logger.info(f"Initializing flow state for {flow_id} with status '{status}'")
+            
+            # Create initial flow state with sanitized inputs
             flow_state = FlowState(
                 flow_id=flow_id,
                 flow_name=flow_name,
-                status="running",
-                inputs=inputs,  # Required field
+                status=status,
+                inputs=sanitized_inputs,  # Sanitized inputs without binary data
                 started_at=datetime.now(timezone.utc),  # Required field
                 steps=[],
                 created_at=datetime.now(timezone.utc).isoformat(),  # Legacy field as string
@@ -626,10 +643,10 @@ class FlowRunner:
             # Save initial flow state
             await self.state_store.save_flow_state(flow_state)
             
-            logger.info(f"🚀 Initialized flow state: {flow_id} ({flow_name})")
+            logger.info(f"🚀 Initialized flow state: {flow_id} ({flow_name}) - Status: {status}")
             
         except Exception as e:
-            logger.warning(f"Failed to initialize flow state for {flow_id}: {e}")
+            logger.error(f"Failed to initialize flow state for {flow_id}: {e}")
             # Don't raise exception - state initialization should not break flow execution
     
     async def _finalize_flow_state(self, flow_id: str, status: str, 

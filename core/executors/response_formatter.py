@@ -7,7 +7,7 @@ and response structure for consistent API responses.
 """
 
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from .base_executor import BaseExecutor, ExecutionResult, FlowContext
@@ -115,7 +115,7 @@ class ResponseFormatter(BaseExecutor):
             "completed_steps": context.completed_steps,
             "failed_steps": context.failed_steps,
             "total_steps": len(context.step_results),
-            "execution_time": (datetime.utcnow() - context.started_at).total_seconds()
+            "execution_time": (datetime.now(timezone.utc) - context.started_at).total_seconds()
         }
     
     def _build_minimal_response(self, context: FlowContext, success: bool) -> Dict[str, Any]:
@@ -177,7 +177,7 @@ class ResponseFormatter(BaseExecutor):
         """Build execution metadata."""
         return {
             "started_at": context.started_at.isoformat(),
-            "execution_duration": (datetime.utcnow() - context.started_at).total_seconds(),
+            "execution_duration": (datetime.now(timezone.utc) - context.started_at).total_seconds(),
             "steps_executed": len(context.step_results),
             "success_rate": len(context.completed_steps) / len(context.step_results) if context.step_results else 0,
             "input_keys": list(context.inputs.keys()),

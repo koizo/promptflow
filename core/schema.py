@@ -32,6 +32,7 @@ class FlowStatus(str, Enum):
     FAILED = "failed"
     PAUSED = "paused"
     CANCELLED = "cancelled"
+    QUEUED = "queued"
 
 
 class StepStatus(str, Enum):
@@ -130,6 +131,7 @@ class FlowState(BaseModel):
     completed_at: Optional[datetime] = None
     total_execution_time: Optional[float] = None
     callback_url: Optional[str] = None
+    callback_status: Optional[str] = None  # Status of callback execution (pending, sent, failed)
     metadata: Dict[str, Any] = {}
     
     # Legacy fields for backward compatibility

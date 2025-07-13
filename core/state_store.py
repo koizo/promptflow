@@ -1,17 +1,16 @@
 """
-Redis-based state store for flow persistence
+Flow state management using Redis for persistence
 """
 import json
 import logging
-from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
 import redis.asyncio as redis
+from typing import Optional, Dict, Any
+from datetime import datetime, timezone
 
-from .config import settings
 from .schema import FlowState
+from .config import settings
 
 logger = logging.getLogger(__name__)
-
 
 class StateStore:
     """Redis-based state store for flow execution state"""
@@ -53,10 +52,17 @@ class StateStore:
         """Save flow execution state"""
         try:
             key = f"flow:{flow_state.flow_id}"
-            value = flow_state.json()
             
-            await self.redis_client.setex(key, self.ttl, value)
-            logger.debug(f"Saved flow state for {flow_state.flow_id}")
+            # Serialize flow state
+            try:
+                data = flow_state.model_dump_json()
+            except Exception as e:
+                logger.error(f"Error serializing to JSON: {e}")
+                return False
+            
+            # Save with TTL
+            await self.redis_client.setex(key, self.ttl, data)
+            logger.debug(f"Saved flow state: {flow_state.flow_id}")
             return True
             
         except Exception as e:
@@ -64,17 +70,19 @@ class StateStore:
             return False
     
     async def get_flow_state(self, flow_id: str) -> Optional[FlowState]:
-        """Retrieve flow execution state"""
+        """Get flow execution state"""
         try:
             key = f"flow:{flow_id}"
-            value = await self.redis_client.get(key)
+            data = await self.redis_client.get(key)
             
-            if value:
-                data = json.loads(value)
-                return FlowState(**data)
-            
-            return None
-            
+            if data:
+                flow_state = FlowState.model_validate_json(data)
+                logger.debug(f"Retrieved flow state: {flow_id}")
+                return flow_state
+            else:
+                logger.debug(f"Flow state not found: {flow_id}")
+                return None
+                
         except Exception as e:
             logger.error(f"Failed to get flow state: {e}")
             return None
@@ -90,57 +98,3 @@ class StateStore:
         except Exception as e:
             logger.error(f"Failed to delete flow state: {e}")
             return False
-    
-    async def list_active_flows(self) -> list[str]:
-        """List all active flow IDs"""
-        try:
-            keys = await self.redis_client.keys("flow:*")
-            flow_ids = [key.replace("flow:", "") for key in keys]
-            return flow_ids
-            
-        except Exception as e:
-            logger.error(f"Failed to list active flows: {e}")
-            return []
-    
-    async def extend_flow_ttl(self, flow_id: str, ttl: Optional[int] = None) -> bool:
-        """Extend TTL for a flow state"""
-        try:
-            key = f"flow:{flow_id}"
-            ttl = ttl or self.ttl
-            result = await self.redis_client.expire(key, ttl)
-            return result
-            
-        except Exception as e:
-            logger.error(f"Failed to extend TTL for flow {flow_id}: {e}")
-            return False
-    
-    async def set_flow_data(self, flow_id: str, data_key: str, data_value: Any) -> bool:
-        """Set additional data for a flow"""
-        try:
-            key = f"flow:{flow_id}:data:{data_key}"
-            value = json.dumps(data_value) if not isinstance(data_value, str) else data_value
-            
-            await self.redis_client.setex(key, self.ttl, value)
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to set flow data: {e}")
-            return False
-    
-    async def get_flow_data(self, flow_id: str, data_key: str) -> Optional[Any]:
-        """Get additional data for a flow"""
-        try:
-            key = f"flow:{flow_id}:data:{data_key}"
-            value = await self.redis_client.get(key)
-            
-            if value:
-                try:
-                    return json.loads(value)
-                except json.JSONDecodeError:
-                    return value
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Failed to get flow data: {e}")
-            return None

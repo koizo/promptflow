@@ -70,17 +70,29 @@ def execute_flow_async(self, flow_name: str, inputs: Dict[str, Any], flow_id: st
     logger.info(f"🚀 Starting async execution: {flow_id} ({flow_name})")
     
     try:
-        # Store callback URL in Redis flow state for future use
-        if callback_url:
-            # We'll implement this when we enhance the state store
-            logger.info(f"📞 Callback URL stored for {flow_id}: {callback_url}")
-        
-        # Execute flow using existing flow runner with Redis state persistence
-        # Note: We need to handle the async nature properly
+        # Update status from "queued" to "running" when worker starts processing
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
         try:
+            # Update flow state to "running" status
+            if flow_runner.redis_enabled and flow_runner.state_store:
+                try:
+                    flow_state = loop.run_until_complete(flow_runner.state_store.get_flow_state(flow_id))
+                    if flow_state:
+                        flow_state.status = "running"
+                        flow_state.updated_at = datetime.now(timezone.utc).isoformat()
+                        loop.run_until_complete(flow_runner.state_store.save_flow_state(flow_state))
+                        logger.info(f"📝 Updated flow status to 'running': {flow_id}")
+                except Exception as e:
+                    logger.warning(f"⚠️  Failed to update flow status to running: {e}")
+            
+            # Store callback URL in Redis flow state for future use
+            if callback_url:
+                # We'll implement this when we enhance the state store
+                logger.info(f"📞 Callback URL stored for {flow_id}: {callback_url}")
+            
+            # Execute flow using existing flow runner with Redis state persistence
             result = loop.run_until_complete(flow_runner.run_flow(flow_name, inputs))
             logger.info(f"✅ Async execution completed: {flow_id}")
             
@@ -166,12 +178,36 @@ def cancel_flow_async(flow_id: str):
 def worker_ready_handler(sender=None, **kwargs):
     """Handle worker ready event."""
     logger.info(f"🔧 Celery worker ready: {sender}")
+    
+    # Initialize flow runner Redis connection in worker context
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(flow_runner.initialize())
+            logger.info("✅ Flow runner initialized in worker context")
+        finally:
+            loop.close()
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize flow runner in worker: {e}")
 
 
 @worker_shutdown.connect  
 def worker_shutdown_handler(sender=None, **kwargs):
     """Handle worker shutdown event."""
     logger.info(f"🔧 Celery worker shutting down: {sender}")
+    
+    # Clean shutdown of flow runner Redis connection
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(flow_runner.stop())
+            logger.info("✅ Flow runner stopped cleanly in worker context")
+        finally:
+            loop.close()
+    except Exception as e:
+        logger.error(f"❌ Failed to stop flow runner in worker: {e}")
 
 
 # Utility functions for task management

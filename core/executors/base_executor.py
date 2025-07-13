@@ -9,7 +9,7 @@ orchestrated through YAML flow definitions.
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ class FlowContext:
         self.inputs = inputs
         self.step_results: Dict[str, ExecutionResult] = {}
         self.current_step: Optional[str] = None
-        self.started_at = datetime.utcnow()
+        self.started_at = datetime.now(timezone.utc)
         self.completed_steps: List[str] = []
         self.failed_steps: List[str] = []
         
@@ -178,7 +178,7 @@ class BaseExecutor(ABC):
         - Execution timing
         - Logging
         """
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         
         try:
             # Validate configuration
@@ -196,7 +196,7 @@ class BaseExecutor(ABC):
             result = await self.execute(context, config)
             
             # Calculate execution time
-            execution_time = (datetime.utcnow() - start_time).total_seconds()
+            execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
             result.execution_time = execution_time
             
             # Add executor metadata
@@ -210,7 +210,7 @@ class BaseExecutor(ABC):
             return result
             
         except Exception as e:
-            execution_time = (datetime.utcnow() - start_time).total_seconds()
+            execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
             error_msg = f"Executor {self.name} failed: {str(e)}"
             self.logger.error(error_msg, exc_info=True)
             
