@@ -1,0 +1,385 @@
+# Executor-Based Architecture Implementation Plan
+# AI Inference Platform - Flow Refactoring
+
+## 📋 OVERVIEW
+Transform flows from code-heavy implementations to pure YAML declarations using an executor-based architecture.
+
+**Goal**: Flows should be pure YAML definitions with no Python code, using reusable executors for all logic.
+
+## 🎯 PHASES
+
+### **PHASE 1: Core Framework (Foundation)**
+**Status**: [x] COMPLETED ✅
+**Timeline**: Week 1
+
+#### 1.1 Base Executor Framework
+- [x] core/executors/base_executor.py
+  - [x] BaseExecutor class
+  - [x] ExecutionResult class  
+  - [x] FlowContext class
+- [x] Standardized executor interface
+- [x] Error handling framework
+
+#### 1.2 Flow Engine Core
+- [x] core/flow_engine/flow_runner.py (Main orchestration engine)
+- [x] core/flow_engine/step_executor.py (Individual step execution)
+- [x] core/flow_engine/context_manager.py (Flow state management)
+- [x] core/flow_engine/yaml_loader.py (YAML parsing and validation)
+- [x] core/flow_engine/template_engine.py (Handle {{ }} templating with Jinja2)
+
+#### 1.3 Flow Registry Updates
+- [x] Enhance core/flow_registry.py
+  - [x] Add YAML flow loading
+  - [x] Remove Python flow discovery
+  - [x] Add flow validation
+  - [x] Generate API endpoints from YAML
+
+**Deliverables**:
+- [x] Base executor interface
+- [x] Flow context management
+- [x] YAML template engine (Jinja2 integration)
+- [x] Flow validation framework
+
+**Tests**: All Phase 1 tests passing ✅
+
+---
+
+### **PHASE 2: Core Executors (Reusable Components)**
+**Status**: [ ] Not Started
+**Timeline**: Week 2
+
+#### 2.1 Document Processing Executors
+- [ ] core/executors/document_extractor.py
+  - Extract text from documents using existing providers
+  - Support chunking, multiple formats
+  - Reuse existing DocumentExtractionManager
+- [ ] core/executors/file_handler.py
+  - Handle file uploads, validation, temp storage
+  - Support multiple file types
+  - Clean up temporary files
+
+#### 2.2 LLM Processing Executors
+- [ ] core/executors/llm_analyzer.py
+  - Analyze text using existing LLM providers
+  - Support custom prompts, different models
+  - Reuse existing LLMManager
+- [ ] core/executors/llm_generator.py
+  - Generate content using LLM
+  - Support various generation tasks
+
+#### 2.3 OCR Processing Executors
+- [ ] core/executors/ocr_processor.py
+  - Process images using existing OCR providers
+  - Support multiple OCR engines
+  - Reuse existing OCRManager
+- [ ] core/executors/image_handler.py
+  - Handle image uploads and preprocessing
+  - Image validation and format conversion
+
+#### 2.4 Utility Executors
+- [ ] core/executors/data_combiner.py
+  - Combine results from multiple steps
+  - Support various combination strategies
+- [ ] core/executors/response_formatter.py
+  - Format final flow responses
+  - Standardized output formatting
+
+**Deliverables**:
+- [ ] 8 core executors covering all current functionality
+- [ ] Executor unit tests
+- [ ] Executor documentation
+
+---
+
+### **PHASE 3: Flow Migration (Convert Existing Flows)**
+**Status**: [ ] Not Started
+**Timeline**: Week 3
+
+#### 3.1 Document Analysis Flow
+- [ ] Create flows/document_analysis/flow.yaml
+  ```yaml
+  name: "document_analysis"
+  steps:
+    - name: "handle_file"
+      executor: "file_handler"
+    - name: "extract_text"  
+      executor: "document_extractor"
+    - name: "analyze_content"
+      executor: "llm_analyzer"
+    - name: "format_response"
+      executor: "response_formatter"
+  ```
+- [ ] Remove flows/document_analysis/router.py
+- [ ] Remove flows/document_analysis/flow.py
+- [ ] Update flows/document_analysis/meta.yaml
+
+#### 3.2 OCR Analysis Flow
+- [ ] Create flows/ocr_analysis/flow.yaml
+  ```yaml
+  name: "ocr_analysis"
+  steps:
+    - name: "handle_image"
+      executor: "image_handler"
+    - name: "extract_text"
+      executor: "ocr_processor"
+    - name: "analyze_content"
+      executor: "llm_analyzer"
+    - name: "format_response"
+      executor: "response_formatter"
+  ```
+- [ ] Remove existing Python code from OCR flow
+
+#### 3.3 Sample Flow
+- [ ] Create flows/sample_flow/flow.yaml
+- [ ] Remove existing Python code
+
+**Deliverables**:
+- [ ] 3 migrated flows as pure YAML
+- [ ] Remove Python code from flow directories
+- [ ] Verify functionality matches current implementation
+
+---
+
+### **PHASE 4: API Integration (Auto-Generated Endpoints)**
+**Status**: [ ] Not Started
+**Timeline**: Week 4
+
+#### 4.1 Dynamic API Generation
+- [ ] core/flow_engine/api_generator.py
+  - [ ] FlowAPIGenerator class
+  - [ ] generate_endpoint() - Create POST endpoint for flow execution
+  - [ ] generate_info_endpoint() - Create GET endpoint for flow information
+  - [ ] generate_health_endpoint() - Create GET endpoint for flow health check
+
+#### 4.2 Router Factory Updates
+- [ ] Enhance core/router_factory.py
+  - [ ] Remove manual router registration
+  - [ ] Auto-generate routes from YAML flows
+  - [ ] Handle input validation from YAML schema
+  - [ ] Generate OpenAPI documentation
+
+#### 4.3 Main Application Updates
+- [ ] Update main.py
+  - [ ] Remove manual flow router imports
+  - [ ] Auto-register flows from YAML definitions
+  - [ ] Maintain backward compatibility
+
+**Deliverables**:
+- [ ] Auto-generated API endpoints
+- [ ] Input validation from YAML schemas
+- [ ] Auto-generated OpenAPI docs
+- [ ] Backward compatibility with existing endpoints
+
+---
+
+### **PHASE 5: Advanced Features (Enhanced Capabilities)**
+**Status**: [ ] Not Started
+**Timeline**: Week 5
+
+#### 5.1 Flow Composition
+- [ ] Support executing flows within flows
+- [ ] flow_executor for nested flow execution
+- [ ] Example: complex_analysis flow combining document + OCR analysis
+
+#### 5.2 Conditional Execution
+- [ ] Support conditional step execution based on previous results
+- [ ] condition field in YAML step definitions
+- [ ] Template-based conditions using {{ }} syntax
+
+#### 5.3 Parallel Execution
+- [ ] Support parallel step execution
+- [ ] parallel_group field for grouping parallel steps
+- [ ] Dependency management for parallel groups
+
+#### 5.4 Enhanced Templating
+- [ ] Advanced Jinja2 templating features
+- [ ] Custom template functions
+- [ ] Complex data transformations
+
+**Deliverables**:
+- [ ] Flow composition capability
+- [ ] Conditional step execution
+- [ ] Parallel step execution
+- [ ] Advanced templating features
+
+---
+
+## 🗂️ NEW DIRECTORY STRUCTURE
+
+```
+promptflow/
+├── core/
+│   ├── executors/              # NEW: Reusable execution units
+│   │   ├── __init__.py
+│   │   ├── base_executor.py
+│   │   ├── document_extractor.py
+│   │   ├── llm_analyzer.py
+│   │   ├── ocr_processor.py
+│   │   ├── file_handler.py
+│   │   ├── llm_generator.py
+│   │   ├── image_handler.py
+│   │   ├── data_combiner.py
+│   │   └── response_formatter.py
+│   ├── flow_engine/            # NEW: Flow orchestration
+│   │   ├── __init__.py
+│   │   ├── flow_runner.py
+│   │   ├── context_manager.py
+│   │   ├── yaml_loader.py
+│   │   ├── template_engine.py
+│   │   └── api_generator.py
+│   ├── document_extraction/    # KEEP: Core providers
+│   ├── llm/                   # KEEP: Core providers  
+│   ├── ocr/                   # KEEP: Core providers
+│   └── flow_registry.py       # ENHANCE: Add YAML support
+├── flows/
+│   ├── document_analysis/
+│   │   ├── flow.yaml          # PURE: Flow definition only
+│   │   └── meta.yaml          # KEEP: Metadata
+│   ├── ocr_analysis/
+│   │   ├── flow.yaml          # PURE: Flow definition only
+│   │   └── meta.yaml          # KEEP: Metadata
+│   └── sample_flow/
+│       ├── flow.yaml          # PURE: Flow definition only
+│       └── meta.yaml          # KEEP: Metadata
+└── main.py                    # SIMPLIFY: Auto-register flows
+```
+
+## 📅 IMPLEMENTATION TIMELINE
+
+### Week 1: Foundation
+- [ ] Implement base executor framework
+- [ ] Create flow engine core
+- [ ] Add YAML template engine
+- [ ] Set up flow validation
+
+### Week 2: Core Executors  
+- [ ] Build 8 core executors
+- [ ] Write executor unit tests
+- [ ] Create executor documentation
+
+### Week 3: Flow Migration
+- [ ] Convert 3 existing flows to YAML
+- [ ] Remove Python code from flows
+- [ ] Test migrated flows
+
+### Week 4: API Integration
+- [ ] Implement auto-generated endpoints
+- [ ] Update router factory
+- [ ] Ensure backward compatibility
+
+### Week 5: Advanced Features
+- [ ] Add flow composition
+- [ ] Implement conditional execution
+- [ ] Add parallel execution support
+
+## 🧪 TESTING STRATEGY
+
+### Unit Tests
+- [ ] Each executor independently testable
+- [ ] Flow engine components tested in isolation
+- [ ] YAML validation and templating tests
+
+### Integration Tests  
+- [ ] End-to-end flow execution tests
+- [ ] API endpoint generation tests
+- [ ] Backward compatibility tests
+
+### Migration Tests
+- [ ] Compare old vs new flow outputs
+- [ ] Performance benchmarking
+- [ ] Error handling verification
+
+## 🔄 MIGRATION STRATEGY
+
+### Backward Compatibility
+- Keep existing API endpoints working during transition
+- Gradual migration of flows one by one
+- Feature flags to switch between old/new implementations
+
+### Rollback Plan
+- Keep current implementation as backup
+- Easy switch between executor-based and code-based flows
+- Comprehensive testing before full migration
+
+## 📊 SUCCESS METRICS
+
+- [ ] **Zero Python code** in flow directories
+- [ ] **100% functionality parity** with current implementation
+- [ ] **New flows created in <5 minutes** using only YAML
+- [ ] **50% reduction** in code complexity
+- [ ] **Improved test coverage** for flow logic
+
+## 📝 EXAMPLE YAML FLOW DEFINITION
+
+```yaml
+# flows/document_analysis/flow.yaml
+name: "document_analysis"
+version: "1.0.0"
+
+inputs:
+  - name: "file"
+    type: "file"
+    required: true
+  - name: "analysis_prompt"
+    type: "string"
+    default: "Analyze this document"
+
+steps:
+  - name: "extract_text"
+    executor: "document_extractor"
+    config:
+      provider: "langchain"
+      chunk_text: "{{ inputs.chunk_text }}"
+    outputs:
+      - "extracted_text"
+      - "metadata"
+
+  - name: "analyze_content"
+    executor: "llm_analyzer"
+    depends_on: ["extract_text"]
+    config:
+      prompt: "{{ inputs.analysis_prompt }}"
+      text: "{{ steps.extract_text.extracted_text }}"
+      model: "{{ inputs.llm_model || 'mistral' }}"
+    outputs:
+      - "analysis"
+
+outputs:
+  - name: "flow_result"
+    value:
+      flow: "document_analysis"
+      steps_completed: "{{ completed_steps }}"
+      extraction: "{{ steps.extract_text }}"
+      analysis: "{{ steps.analyze_content.analysis }}"
+```
+
+---
+
+## 📋 PROGRESS TRACKING
+
+**Current Status**: Phase 1 Complete - Starting Phase 2
+**Next Action**: Begin Phase 2 - Core Executors Implementation
+**Last Updated**: July 9, 2025
+
+### Completed:
+- [x] Architecture design
+- [x] Implementation plan creation
+- [x] Directory structure planning
+- [x] Timeline definition
+- [x] **PHASE 1: Core Framework** ✅
+  - [x] Base executor interface and framework
+  - [x] Flow engine with YAML loading and templating
+  - [x] Context management and state tracking
+  - [x] Executor registry with auto-discovery
+  - [x] Integration testing and validation
+
+### In Progress:
+- [ ] **PHASE 2: Core Executors** (Next)
+
+### Blocked:
+- [ ] None
+
+### Notes:
+- Plan saved to track progress through executor-based architecture implementation
+- Focus on maintaining backward compatibility during migration
+- Prioritize reusable executors that can work across multiple flows

@@ -39,6 +39,9 @@ pydantic-settings>=2.1.0
 # YAML processing
 PyYAML>=6.0.1
 
+# Template engine for flow processing
+Jinja2>=3.1.0
+
 # HTTP client for callbacks
 httpx>=0.25.0
 
