@@ -1,0 +1,47 @@
+# HuggingFace Whisper Model Configuration Examples
+
+## 1. OpenAI Whisper Base Model (Default)
+whisper_provider: "huggingface"
+hf_model_name: "openai/whisper-base"
+device: "auto"
+
+## 2. OpenAI Whisper Large V3 (Best Quality)
+whisper_provider: "huggingface"
+hf_model_name: "openai/whisper-large-v3"
+device: "cuda"  # Recommended for large models
+
+## 3. OpenAI Whisper Small (Faster)
+whisper_provider: "huggingface"
+hf_model_name: "openai/whisper-small"
+device: "cpu"
+
+## 4. Distil Whisper (Faster, Smaller)
+whisper_provider: "huggingface"
+hf_model_name: "distil-whisper/distil-large-v2"
+device: "auto"
+
+## 5. Multilingual Models
+whisper_provider: "huggingface"
+hf_model_name: "openai/whisper-medium"
+language: "auto"  # Auto-detect language
+device: "auto"
+
+## 6. Fine-tuned Models (Example)
+whisper_provider: "huggingface"
+hf_model_name: "your-username/whisper-finetuned-model"
+device: "cuda"
+
+# Popular HuggingFace Whisper Models:
+# - openai/whisper-tiny (39M params, fastest)
+# - openai/whisper-base (74M params, good balance)
+# - openai/whisper-small (244M params, better quality)
+# - openai/whisper-medium (769M params, high quality)
+# - openai/whisper-large-v2 (1550M params, best quality)
+# - openai/whisper-large-v3 (1550M params, latest)
+# - distil-whisper/distil-large-v2 (756M params, 6x faster)
+# - distil-whisper/distil-medium.en (394M params, English only)
+
+# Device Options:
+# - "auto": Automatically choose GPU if available, else CPU
+# - "cuda": Force GPU usage (requires CUDA)
+# - "cpu": Force CPU usage (slower but works everywhere)

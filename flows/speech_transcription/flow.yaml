@@ -32,7 +32,7 @@ inputs:
     type: "string"
     required: false
     default: "local"
-    enum: ["local", "openai"]
+    enum: ["local", "openai", "huggingface"]
     description: "Whisper provider to use"
   
   - name: "whisper_model"
@@ -41,6 +41,19 @@ inputs:
     default: "base"
     enum: ["tiny", "base", "small", "medium", "large"]
     description: "Whisper model size (local provider only)"
+  
+  - name: "hf_model_name"
+    type: "string"
+    required: false
+    default: "openai/whisper-base"
+    description: "HuggingFace model name (huggingface provider only)"
+  
+  - name: "device"
+    type: "string"
+    required: false
+    default: "auto"
+    enum: ["auto", "cpu", "cuda"]
+    description: "Device for HuggingFace models (huggingface provider only)"
   
   - name: "include_timestamps"
     type: "boolean"
@@ -80,6 +93,8 @@ steps:
       language: "{{ inputs.language }}"
       model_size: "{{ inputs.whisper_model }}"
       provider: "{{ inputs.whisper_provider }}"
+      model_name: "{{ inputs.hf_model_name }}"
+      device: "{{ inputs.device }}"
       include_timestamps: "{{ inputs.include_timestamps }}"
       temperature: 0.0
     description: "Transcribe audio to text using Whisper"

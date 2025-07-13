@@ -55,10 +55,12 @@ class WhisperProcessor(BaseExecutor):
         - audio_path (required): Path to audio file
         - language (optional): Language code or 'auto' for detection (default: 'auto')
         - model_size (optional): Whisper model size (default: 'base')
-        - provider (optional): 'local' or 'openai' (default: 'local')
+        - provider (optional): 'local', 'openai', or 'huggingface' (default: 'local')
+        - model_name (optional): HuggingFace model name (e.g., 'openai/whisper-large-v3')
         - include_timestamps (optional): Include word-level timestamps (default: True)
         - temperature (optional): Sampling temperature (default: 0.0)
         - api_key (optional): OpenAI API key (required for 'openai' provider)
+        - device (optional): Device for HuggingFace models ('cpu', 'cuda', 'auto') (default: 'auto')
         """
         start_time = time.time()
         
@@ -202,10 +204,14 @@ class WhisperProcessor(BaseExecutor):
                 return self._transcribe_openai_whisper(
                     audio_path, language, temperature, config
                 )
+            elif provider == 'huggingface':
+                return self._transcribe_huggingface_whisper(
+                    audio_path, language, config
+                )
             else:
                 return {
                     'success': False,
-                    'error': f"Unknown provider: {provider}"
+                    'error': f"Unknown provider: {provider}. Supported: local, openai, huggingface"
                 }
                 
         except Exception as e:
@@ -350,13 +356,111 @@ class WhisperProcessor(BaseExecutor):
     """,
             "supported_languages": self.SUPPORTED_LANGUAGES,
             "supported_models": self.WHISPER_MODELS,
-            "providers": ["local", "openai"],
+            "providers": ["local", "openai", "huggingface"],
             "capabilities": [
                 "Speech-to-text transcription",
                 "Multi-language support",
                 "Timestamp generation",
                 "Language detection", 
                 "Multiple model sizes",
-                "Local and cloud processing"
+                "Local and cloud processing",
+                "HuggingFace Transformers models"
             ]
         }
+    
+    def _transcribe_huggingface_whisper(self, audio_path: str, language: str, 
+                                       config: Dict[str, Any]) -> Dict[str, Any]:
+        """Transcribe using HuggingFace Whisper models."""
+        try:
+            # Import HuggingFace dependencies
+            try:
+                from transformers import AutomaticSpeechRecognitionPipeline, pipeline
+                import torch
+            except ImportError:
+                return {
+                    'success': False,
+                    'error': "HuggingFace transformers not installed. Run: pip install transformers torch"
+                }
+            
+            # Get model configuration
+            model_name = config.get('model_name', 'openai/whisper-base')
+            device = config.get('device', 'auto')
+            include_timestamps = config.get('include_timestamps', True)
+            
+            # Determine device
+            if device == 'auto':
+                device = 0 if torch.cuda.is_available() else -1
+            elif device == 'cuda':
+                device = 0 if torch.cuda.is_available() else -1
+            elif device == 'cpu':
+                device = -1
+            
+            logger.info(f"Loading HuggingFace Whisper model: {model_name} on device: {device}")
+            
+            # Create or get cached pipeline
+            cache_key = f"{model_name}_{device}"
+            if cache_key not in self._loaded_models:
+                pipe = pipeline(
+                    "automatic-speech-recognition",
+                    model=model_name,
+                    device=device,
+                    return_timestamps=include_timestamps
+                )
+                self._loaded_models[cache_key] = pipe
+            else:
+                pipe = self._loaded_models[cache_key]
+            
+            # Prepare transcription parameters
+            generate_kwargs = {}
+            if language != 'auto':
+                # Map language codes to HuggingFace format
+                lang_map = {
+                    'en': 'english', 'es': 'spanish', 'fr': 'french', 'de': 'german',
+                    'it': 'italian', 'pt': 'portuguese', 'ru': 'russian', 'ja': 'japanese',
+                    'ko': 'korean', 'zh': 'chinese', 'ar': 'arabic', 'hi': 'hindi'
+                }
+                if language in lang_map:
+                    generate_kwargs['language'] = lang_map[language]
+            
+            # Transcribe audio
+            logger.info(f"Transcribing audio with HuggingFace model: {model_name}")
+            result = pipe(audio_path, generate_kwargs=generate_kwargs)
+            
+            # Process results
+            if isinstance(result, dict):
+                transcript = result.get('text', '')
+                chunks = result.get('chunks', [])
+            else:
+                transcript = str(result)
+                chunks = []
+            
+            # Build response
+            response = {
+                'success': True,
+                'transcript': transcript.strip(),
+                'language': language if language != 'auto' else 'detected',
+                'confidence': 0.95,  # HuggingFace doesn't provide confidence scores
+                'duration': 0.0  # Would need librosa to get actual duration
+            }
+            
+            # Add timestamps if available
+            if include_timestamps and chunks:
+                segments = []
+                for chunk in chunks:
+                    if 'timestamp' in chunk:
+                        segments.append({
+                            'start': chunk['timestamp'][0] if chunk['timestamp'][0] else 0.0,
+                            'end': chunk['timestamp'][1] if chunk['timestamp'][1] else 0.0,
+                            'text': chunk.get('text', '').strip()
+                        })
+                response['segments'] = segments
+            
+            logger.info(f"HuggingFace transcription completed: {len(transcript)} characters")
+            return response
+            
+        except Exception as e:
+            logger.error(f"HuggingFace Whisper transcription failed: {str(e)}")
+            return {
+                'success': False,
+                'error': f"HuggingFace transcription failed: {str(e)}"
+            }

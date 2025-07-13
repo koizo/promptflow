@@ -94,3 +94,5 @@ zstandard>=0.23.0  # For data compression
 marshmallow>=3.18.0  # For data serialization
 typing-inspect>=0.9.0  # For type inspection
 mypy-extensions>=1.0.0  # For type extensions
+transformers>=4.35.0
+torch>=2.0.0
