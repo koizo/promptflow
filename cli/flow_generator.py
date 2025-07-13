@@ -8,6 +8,7 @@ Generates YAML flow definitions from natural language descriptions using LLM.
 import argparse
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Dict, Any, List
@@ -43,6 +44,90 @@ class FlowGenerator:
                 "description": "Performs OCR on images to extract text",
                 "inputs": ["image_path", "images", "provider"],
                 "outputs": ["text", "confidence", "bounding_boxes"]
+            },
+            "vision_classifier": {
+                "description": "Classifies images using computer vision models (HuggingFace or OpenAI Vision)",
+                "inputs": ["file", "provider", "model", "top_k"],
+                "outputs": ["predictions", "confidence_scores", "processing_time"]
+            },
+            "whisper_processor": {
+                "description": "Converts speech to text using Whisper models (local or OpenAI API)",
+                "inputs": ["file", "provider", "model_size", "language", "temperature"],
+                "outputs": ["transcription", "language_detected", "confidence", "segments"]
+            },
+            "sentiment_analyzer": {
+                "description": "Analyzes sentiment and emotions in text (HuggingFace or LLM)",
+                "inputs": ["text", "provider", "analysis_type", "model"],
+                "outputs": ["sentiment", "confidence", "emotions", "aspects"]
+            },
+            "llm_analyzer": {
+                "description": "Analyzes text using Large Language Models",
+                "inputs": ["text", "prompt", "model", "temperature"],
+                "outputs": ["analysis", "summary", "key_points"]
+            },
+            "image_handler": {
+                "description": "Processes and optimizes images",
+                "inputs": ["image_data", "resize", "format"],
+                "outputs": ["processed_image", "metadata"]
+            },
+            "data_combiner": {
+                "description": "Combines data from multiple sources",
+                "inputs": ["sources", "combine_method"],
+                "outputs": ["combined_data", "source_count"]
+            },
+            "response_formatter": {
+                "description": "Formats responses in various templates",
+                "inputs": ["data", "template", "format"],
+                "outputs": ["formatted_response"]
+            }
+        }
+        
+    @staticmethod
+    def to_snake_case(text: str) -> str:
+        """Convert text to snake_case."""
+        # Replace spaces and special characters with underscores
+        text = re.sub(r'[^\w\s]', '', text)
+        # Replace spaces with underscores
+        text = re.sub(r'\s+', '_', text)
+        # Convert to lowercase
+        text = text.lower()
+        # Remove multiple consecutive underscores
+        text = re.sub(r'_+', '_', text)
+        # Remove leading/trailing underscores
+        text = text.strip('_')
+        return text
+        
+        # Available executors with descriptions
+        self.available_executors = {
+            "file_handler": {
+                "description": "Handles file uploads, validation, and temporary storage",
+                "inputs": ["file_content", "file_path"],
+                "outputs": ["temp_path", "file_type", "file_size"]
+            },
+            "document_extractor": {
+                "description": "Extracts text from documents (PDF, Word, Excel, PowerPoint)",
+                "inputs": ["file_path", "extract_images"],
+                "outputs": ["text", "images", "page_count", "word_count"]
+            },
+            "ocr_processor": {
+                "description": "Performs OCR on images to extract text",
+                "inputs": ["image_path", "images", "provider"],
+                "outputs": ["text", "confidence", "bounding_boxes"]
+            },
+            "vision_classifier": {
+                "description": "Classifies images using computer vision models (HuggingFace or OpenAI Vision)",
+                "inputs": ["file", "provider", "model", "top_k"],
+                "outputs": ["predictions", "confidence_scores", "processing_time"]
+            },
+            "whisper_processor": {
+                "description": "Converts speech to text using Whisper models (local or OpenAI API)",
+                "inputs": ["file", "provider", "model_size", "language", "temperature"],
+                "outputs": ["transcription", "language_detected", "confidence", "segments"]
+            },
+            "sentiment_analyzer": {
+                "description": "Analyzes sentiment and emotions in text (HuggingFace or LLM)",
+                "inputs": ["text", "provider", "analysis_type", "model"],
+                "outputs": ["sentiment", "confidence", "emotions", "aspects"]
             },
             "llm_analyzer": {
                 "description": "Analyzes text using Large Language Models",
@@ -82,11 +167,12 @@ Your task is to generate a valid YAML flow definition that accomplishes the user
 
 YAML Flow Structure:
 ```yaml
-name: "flow_name"
+name: "flow_name_in_snake_case"
+version: "1.0.0"
 description: "Brief description"
 inputs:
   - name: "input_name"
-    type: "string|file|integer|boolean"
+    type: "string|file|integer|boolean|float"
     required: true|false
     default: "default_value"  # optional
     description: "Input description"
@@ -95,25 +181,91 @@ steps:
   - name: "step_name"
     executor: "executor_name"
     config:
-      parameter: "{{ inputs.input_name }}"  # Use Jinja2 templates
-      another_param: "{{ steps.previous_step.output_name }}"
+      parameter: "{{{{ inputs.input_name }}}}"  # Use Jinja2 templates
+      another_param: "{{{{ steps.previous_step.output_name }}}}"
     depends_on: ["previous_step"]  # optional
-    condition: "{{ inputs.enable_feature }}"  # optional
+    condition: "{{{{ inputs.enable_feature }}}}"  # optional
+
+  # ALWAYS include response_formatter as the final step
+  - name: "format_response"
+    executor: "response_formatter"
+    config:
+      data: "{{{{ steps.previous_final_step.output }}}}"
+      template: "structured"
+      format: "json"
+    depends_on: ["previous_final_step"]
 
 outputs:
   - name: "output_name"
-    value: "{{ steps.final_step.result }}"
+    value: "{{{{ steps.format_response.formatted_response }}}}"
     description: "Output description"
+
+config:
+  execution:
+    mode: "async"  # or "sync" for simple flows
+    timeout: 300
+    max_retries: 3
+    queue: "flow_name_queue"
+    worker: "celery-worker-flow_name"
+  
+  validation:
+    required_inputs: ["input1", "input2"]
+    
+  metadata:
+    category: "category_name"  # e.g., "computer_vision", "text_analysis", "audio_processing"
+    tags: ["tag1", "tag2", "tag3"]
+    author: "AI Inference Platform"
 ```
 
+Common AI Workflow Examples:
+
+1. Image Classification:
+   - Use vision_classifier with provider="huggingface" for fast local processing
+   - Use vision_classifier with provider="openai" for detailed natural language descriptions
+   - Common models: "google/vit-base-patch16-224", "microsoft/resnet-50"
+   - Category: "computer_vision", Tags: ["image", "classification", "vision"]
+   - ALWAYS end with response_formatter to structure the classification results
+
+2. Speech Transcription:
+   - Use whisper_processor with provider="local" for privacy
+   - Use whisper_processor with provider="openai" for best accuracy
+   - Model sizes: "tiny", "base", "small", "medium", "large"
+   - Category: "audio_processing", Tags: ["speech", "transcription", "whisper"]
+   - ALWAYS end with response_formatter to structure the transcription results
+
+3. Sentiment Analysis:
+   - Use sentiment_analyzer with provider="huggingface" for specialized models
+   - Use sentiment_analyzer with provider="llm" for custom analysis
+   - Analysis types: "basic", "emotions", "aspects", "comprehensive"
+   - Category: "text_analysis", Tags: ["sentiment", "nlp", "analysis"]
+   - ALWAYS end with response_formatter to structure the sentiment results
+
+4. Document Processing:
+   - Chain file_handler → document_extractor → ocr_processor → llm_analyzer → response_formatter
+   - Use ocr_processor for images within documents
+   - Use sentiment_analyzer for customer feedback analysis
+   - Category: "document_processing", Tags: ["ocr", "document", "extraction"]
+   - ALWAYS end with response_formatter to structure the analysis results
+
+Response Formatter Configuration:
+- template: "structured" (default), "summary", "detailed", "custom"
+- format: "json" (default), "yaml", "text", "html"
+- The response_formatter step is CRITICAL for callbacks and API responses
+
 Rules:
-1. Use Jinja2 template syntax for dynamic values: {{ inputs.name }}, {{ steps.step_name.output }}
-2. Chain steps logically using depends_on
-3. Choose appropriate executors based on the task
-4. Include meaningful input validation and descriptions
-5. Provide clear step names and descriptions
-6. Only use the available executors listed above
-7. Return ONLY the YAML content, no explanations or markdown formatting"""
+1. ALWAYS use snake_case for flow names (e.g., "image_classification", "speech_transcription")
+2. Use Jinja2 template syntax for dynamic values: {{{{ inputs.name }}}}, {{{{ steps.step_name.output }}}}
+3. Chain steps logically using depends_on
+4. Choose appropriate executors based on the task
+5. Include meaningful input validation and descriptions
+6. Provide clear step names and descriptions
+7. Always include the config section with execution, validation, and metadata
+8. Set appropriate queue names matching the flow name
+9. Choose relevant category and tags for metadata
+10. ALWAYS include response_formatter as the final step - this is MANDATORY for callbacks
+11. The final output should reference steps.format_response.formatted_response
+12. Only use the available executors listed above
+13. Return ONLY the YAML content, no explanations or markdown formatting"""
 
     async def generate_flow(self, description: str, interactive: bool = False) -> str:
         """Generate a flow from natural language description."""
@@ -180,16 +332,54 @@ Rules:
             flow_data = yaml.safe_load(yaml_content)
             
             # Basic structure validation
-            required_fields = ["name", "steps"]
+            required_fields = ["name", "steps", "config"]
             for field in required_fields:
                 if field not in flow_data:
                     raise ValueError(f"Missing required field: {field}")
             
+            # Validate flow name is snake_case
+            flow_name = flow_data.get("name", "")
+            if not re.match(r'^[a-z][a-z0-9_]*$', flow_name):
+                # Try to fix the name automatically
+                corrected_name = self.to_snake_case(flow_name)
+                print(f"⚠️  Flow name '{flow_name}' converted to snake_case: '{corrected_name}'")
+                # Update the YAML content
+                yaml_content = yaml_content.replace(f'name: "{flow_name}"', f'name: "{corrected_name}"')
+                flow_data["name"] = corrected_name
+            
+            # Validate config section structure
+            config = flow_data.get("config", {})
+            required_config_sections = ["execution", "validation", "metadata"]
+            for section in required_config_sections:
+                if section not in config:
+                    raise ValueError(f"Missing config section: {section}")
+            
+            # Validate execution config
+            execution = config.get("execution", {})
+            required_execution_fields = ["mode", "timeout", "max_retries"]
+            for field in required_execution_fields:
+                if field not in execution:
+                    raise ValueError(f"Missing execution config field: {field}")
+            
             # Validate executors exist
-            for step in flow_data.get("steps", []):
+            steps = flow_data.get("steps", [])
+            for step in steps:
                 executor = step.get("executor")
                 if executor not in self.available_executors:
                     raise ValueError(f"Unknown executor: {executor}")
+            
+            # Validate response_formatter is the final step
+            if len(steps) > 0:
+                final_step = steps[-1]
+                if final_step.get("executor") != "response_formatter":
+                    print("⚠️  Warning: Final step should be 'response_formatter' for proper callback handling")
+            
+            # Validate outputs reference response_formatter
+            outputs = flow_data.get("outputs", [])
+            for output in outputs:
+                output_value = output.get("value", "")
+                if "steps.format_response" not in output_value and "response_formatter" not in output_value:
+                    print("⚠️  Warning: Outputs should reference response_formatter step for proper formatting")
             
             print("✅ Generated flow validation passed")
             

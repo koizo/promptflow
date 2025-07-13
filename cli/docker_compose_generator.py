@@ -3,12 +3,30 @@ Docker Compose Generator
 
 Generates docker-compose.yml dynamically based on async flows.
 Creates separate worker services per async flow for isolation.
+
+Usage:
+    # From project root:
+    python cli/docker_compose_generator.py
+    
+    # From CLI directory:
+    cd cli && python docker_compose_generator.py
+    
+    # With virtual environment:
+    source venv/bin/activate && python cli/docker_compose_generator.py
+
+Requirements:
+    - Must be run with virtual environment activated
+    - Generates docker-compose.yml and start_workers.sh in project root
 """
 
 import yaml
 import logging
+import sys
 from pathlib import Path
 from typing import Dict, Any, List
+
+# Add parent directory to path for imports
+sys.path.append(str(Path(__file__).parent.parent))
 
 from core.flow_engine.flow_runner import FlowRunner
 from core.flow_engine.celery_config import get_async_flows
@@ -47,11 +65,19 @@ def generate_docker_compose_services(flow_runner: FlowRunner) -> Dict[str, Any]:
             'ports': ['8000:8000'],
             'depends_on': ['redis'],
             'environment': [
-                'REDIS_URL=redis://redis:6379'
+                'REDIS_URL=redis://redis:6379',
+                'OLLAMA_BASE_URL=http://host.docker.internal:11434'
             ],
             'volumes': [
-                './logs:/app/logs'
-            ]
+                './logs:/app/logs',
+                'temp_files:/app/temp'
+            ],
+            'healthcheck': {
+                'test': ['CMD', 'curl', '-f', 'http://localhost:8000/health'],
+                'interval': '30s',
+                'timeout': '10s',
+                'retries': 3
+            }
         },
         'redis': {
             'image': 'redis:7-alpine',
@@ -59,7 +85,13 @@ def generate_docker_compose_services(flow_runner: FlowRunner) -> Dict[str, Any]:
             'volumes': [
                 'redis_data:/data'
             ],
-            'command': 'redis-server --appendonly yes'
+            'command': 'redis-server --appendonly yes',
+            'healthcheck': {
+                'test': ['CMD', 'redis-cli', 'ping'],
+                'interval': '30s',
+                'timeout': '10s',
+                'retries': 3
+            }
         }
     }
     
@@ -75,11 +107,18 @@ def generate_docker_compose_services(flow_runner: FlowRunner) -> Dict[str, Any]:
                 'REDIS_URL=redis://redis:6379',
                 f'FLOW_NAME={worker["flow_name"]}',
                 f'MAX_CONCURRENT={worker["max_concurrent"]}',
-                f'QUEUE_NAME={worker["queue"]}'
+                f'QUEUE_NAME={worker["queue"]}',
+                'OLLAMA_BASE_URL=http://host.docker.internal:11434'
             ],
             'volumes': [
-                './logs:/app/logs'
-            ]
+                'temp_files:/app/temp'
+            ],
+            'healthcheck': {
+                'test': ['CMD', 'celery', '-A', 'celery_app', 'inspect', 'ping'],
+                'interval': '30s',
+                'timeout': '10s',
+                'retries': 3
+            }
         }
     
     # Add monitoring service
@@ -90,7 +129,13 @@ def generate_docker_compose_services(flow_runner: FlowRunner) -> Dict[str, Any]:
         'depends_on': ['redis'],
         'environment': [
             'REDIS_URL=redis://redis:6379'
-        ]
+        ],
+        'healthcheck': {
+            'test': ['CMD', 'curl', '-f', 'http://localhost:5555'],
+            'interval': '30s',
+            'timeout': '10s',
+            'retries': 3
+        }
     }
     
     return base_services
@@ -105,7 +150,8 @@ def generate_docker_compose_config(flow_runner: FlowRunner) -> Dict[str, Any]:
         'version': '3.8',
         'services': services,
         'volumes': {
-            'redis_data': {}
+            'redis_data': {},
+            'temp_files': {}
         },
         'networks': {
             'default': {
@@ -228,21 +274,28 @@ async def main():
     
     print("🧪 Testing Docker Compose Generator...")
     
-    # Initialize flow runner
-    flow_runner = FlowRunner()
+    # Find project root directory (where flows directory is located)
+    script_dir = Path(__file__).parent
+    project_root = script_dir.parent
+    flows_dir = project_root / "flows"
+    
+    # Initialize flow runner with correct flows directory
+    flow_runner = FlowRunner(flows_dir)
     await flow_runner.initialize()
     
     try:
-        # Generate docker-compose.yml
-        success = update_docker_compose(flow_runner)
+        # Generate docker-compose.yml in project root
+        compose_path = project_root / "docker-compose.yml"
+        success = update_docker_compose(flow_runner, compose_path)
         
         if success:
             print("✅ Docker Compose generation successful")
         else:
             print("❌ Docker Compose generation failed")
         
-        # Generate startup script
-        script_success = create_worker_startup_script(flow_runner)
+        # Generate startup script in project root
+        script_path = project_root / "start_workers.sh"
+        script_success = create_worker_startup_script(flow_runner, script_path)
         
         if script_success:
             print("✅ Worker startup script generation successful")
