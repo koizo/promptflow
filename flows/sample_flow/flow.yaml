@@ -1,0 +1,120 @@
+name: "sample_flow"
+version: "1.0.0"
+description: "Simple demonstration flow showing basic executor usage and flow orchestration"
+
+# Input schema - defines the API parameters
+inputs:
+  - name: "input_text"
+    type: "string"
+    required: true
+    description: "Text input to process"
+  
+  - name: "processing_type"
+    type: "string"
+    required: false
+    default: "analysis"
+    enum: ["analysis", "summary", "enhancement"]
+    description: "Type of text processing to perform"
+  
+  - name: "llm_model"
+    type: "string"
+    required: false
+    default: "mistral"
+    description: "LLM model to use"
+  
+  - name: "include_metadata"
+    type: "boolean"
+    required: false
+    default: true
+    description: "Whether to include detailed metadata in response"
+
+# Flow execution steps
+steps:
+  - name: "process_input"
+    executor: "llm_analyzer"
+    description: "Process input text with LLM"
+    config:
+      text: "{{ inputs.input_text }}"
+      prompt: "{{ _get_processing_prompt(inputs.processing_type) }}"
+      model: "{{ inputs.llm_model }}"
+      provider: "ollama"
+    outputs:
+      - "analysis"
+      - "text_length"
+
+  - name: "combine_results"
+    executor: "data_combiner"
+    depends_on: ["process_input"]
+    description: "Combine input and processing results"
+    config:
+      sources: 
+        - "inputs"
+        - "steps.process_input"
+      strategy: "merge"
+      merge_strategy: "combine"
+      output_key: "combined_data"
+    outputs:
+      - "combined_data"
+
+  - name: "format_response"
+    executor: "response_formatter"
+    depends_on: ["combine_results"]
+    description: "Format final response"
+    config:
+      template: "{{ 'detailed' if inputs.include_metadata else 'minimal' }}"
+      include_metadata: "{{ inputs.include_metadata }}"
+      include_steps: "{{ inputs.include_metadata }}"
+      success_message: "Sample flow completed successfully!"
+      custom_fields:
+        flow: "sample_flow"
+        processing_type: "{{ inputs.processing_type }}"
+        original_text: "{{ inputs.input_text }}"
+        processed_result: "{{ steps.process_input.analysis }}"
+        text_length: "{{ steps.process_input.text_length }}"
+        llm_model_used: "{{ inputs.llm_model }}"
+
+# Output schema - defines what the API returns
+outputs:
+  - name: "success"
+    value: "{{ success }}"
+    description: "Whether the flow completed successfully"
+  
+  - name: "flow"
+    value: "sample_flow"
+    description: "Flow identifier"
+  
+  - name: "message"
+    value: "Sample flow completed successfully!"
+    description: "Success message"
+  
+  - name: "original_text"
+    value: "{{ inputs.input_text }}"
+    description: "Original input text"
+  
+  - name: "processed_result"
+    value: "{{ steps.process_input.analysis }}"
+    description: "LLM processing result"
+  
+  - name: "processing_type"
+    value: "{{ inputs.processing_type }}"
+    description: "Type of processing performed"
+
+# Helper functions for dynamic prompt generation
+functions:
+  _get_processing_prompt:
+    description: "Generate processing prompt based on type"
+    implementation: |
+      def _get_processing_prompt(processing_type):
+          prompts = {
+              "analysis": "Analyze the following text and provide insights:",
+              "summary": "Provide a concise summary of the following text:",
+              "enhancement": "Improve and enhance the following text while maintaining its original meaning:"
+          }
+          return prompts.get(processing_type, prompts["analysis"])
+
+# Flow configuration
+config:
+  timeout: 120  # 2 minutes
+  retry_count: 1
+  async_execution: false
+  cleanup_temp_files: false

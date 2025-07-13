@@ -1,0 +1,141 @@
+name: "document_analysis"
+version: "1.0.0"
+description: "Complete document analysis flow combining text extraction and LLM analysis"
+
+# Input schema - defines the API parameters
+inputs:
+  - name: "file"
+    type: "file"
+    required: true
+    description: "Document file to analyze (PDF, Word, Excel, PowerPoint, text files)"
+  
+  - name: "analysis_prompt"
+    type: "string"
+    required: false
+    default: "Analyze this document and provide a summary"
+    description: "Analysis prompt for the LLM"
+  
+  - name: "provider"
+    type: "string"
+    required: false
+    default: "langchain"
+    description: "Document extraction provider to use"
+  
+  - name: "llm_model"
+    type: "string"
+    required: false
+    default: "mistral"
+    description: "LLM model to use for analysis"
+  
+  - name: "chunk_text"
+    type: "boolean"
+    required: false
+    default: false
+    description: "Whether to split document into chunks for analysis"
+
+# Flow execution steps
+steps:
+  - name: "handle_file"
+    executor: "file_handler"
+    description: "Handle uploaded file and create temporary storage"
+    config:
+      file_content: "{{ inputs.file.content }}"
+      filename: "{{ inputs.file.filename }}"
+      save_temp: true
+      validate_format: true
+      allowed_formats: [".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".txt", ".csv", ".md", ".rtf"]
+      max_size: 10485760  # 10MB
+    outputs:
+      - "temp_path"
+      - "filename"
+      - "file_extension"
+
+  - name: "extract_text"
+    executor: "document_extractor"
+    depends_on: ["handle_file"]
+    description: "Extract text from document using LangChain providers"
+    config:
+      file_path: "{{ steps.handle_file.temp_path }}"
+      provider: "{{ inputs.provider }}"
+      chunk_text: "{{ inputs.chunk_text }}"
+      chunk_size: 1000
+      chunk_overlap: 200
+    outputs:
+      - "text"
+      - "chunks"
+      - "chunked"
+      - "total_chunks"
+
+  - name: "analyze_content"
+    executor: "llm_analyzer"
+    depends_on: ["extract_text"]
+    description: "Analyze extracted text using LLM"
+    config:
+      text: "{{ steps.extract_text.text if not steps.extract_text.chunked else '' }}"
+      chunks: "{{ steps.extract_text.chunks if steps.extract_text.chunked else [] }}"
+      prompt: "{{ inputs.analysis_prompt }}"
+      model: "{{ inputs.llm_model }}"
+      provider: "ollama"
+      combine_chunks: true
+    outputs:
+      - "analysis"
+      - "chunk_analyses"
+      - "combined_analysis"
+
+  - name: "format_response"
+    executor: "response_formatter"
+    depends_on: ["analyze_content"]
+    description: "Format final response with standardized structure"
+    config:
+      template: "detailed"
+      include_metadata: true
+      include_steps: true
+      custom_fields:
+        flow: "document_analysis"
+        file_name: "{{ steps.handle_file.filename }}"
+        file_extension: "{{ steps.handle_file.file_extension }}"
+        provider: "{{ inputs.provider }}"
+        chunked: "{{ steps.extract_text.chunked }}"
+        total_chunks: "{{ steps.extract_text.total_chunks }}"
+        extracted_text: "{{ steps.extract_text.text }}"
+        analysis: "{{ steps.analyze_content.combined_analysis if steps.extract_text.chunked else steps.analyze_content.analysis }}"
+        chunk_analyses: "{{ steps.analyze_content.chunk_analyses if steps.extract_text.chunked else [] }}"
+        llm_model: "{{ inputs.llm_model }}"
+        analysis_prompt: "{{ inputs.analysis_prompt }}"
+
+# Output schema - defines what the API returns
+outputs:
+  - name: "success"
+    value: "{{ success }}"
+    description: "Whether the flow completed successfully"
+  
+  - name: "flow"
+    value: "document_analysis"
+    description: "Flow identifier"
+  
+  - name: "steps_completed"
+    value: "{{ completed_steps }}"
+    description: "List of successfully completed steps"
+  
+  - name: "file_name"
+    value: "{{ steps.handle_file.filename }}"
+    description: "Name of the processed file"
+  
+  - name: "extracted_text"
+    value: "{{ steps.extract_text.text }}"
+    description: "Extracted text from document"
+  
+  - name: "analysis"
+    value: "{{ steps.analyze_content.combined_analysis if steps.extract_text.chunked else steps.analyze_content.analysis }}"
+    description: "LLM analysis result"
+  
+  - name: "metadata"
+    value: "{{ metadata }}"
+    description: "Execution metadata and timing information"
+
+# Flow configuration
+config:
+  timeout: 300  # 5 minutes
+  retry_count: 2
+  async_execution: false
+  cleanup_temp_files: true
