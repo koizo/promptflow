@@ -170,10 +170,10 @@ class WhisperProcessor(BaseExecutor):
             
             # Validate provider
             provider = config.get('provider', 'local')
-            if provider not in ['local', 'openai']:
+            if provider not in ['local', 'openai', 'huggingface']:
                 return ExecutionResult(
                     success=False,
-                    error="Provider must be 'local' or 'openai'"
+                    error="Provider must be 'local', 'openai', or 'huggingface'"
                 )
             
             # Check OpenAI API key if using OpenAI provider
