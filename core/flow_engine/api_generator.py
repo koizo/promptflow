@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, create_model
 import logging
 import tempfile
 import uuid
+from datetime import datetime
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -271,8 +272,28 @@ class FlowAPIGenerator:
                         }
                     }
                 else:
-                    # Sync execution (existing behavior)
+                    # Sync execution with callback support
+                    start_time = datetime.now()
                     result = await self.flow_runner.run_flow(flow_def.name, validated_inputs)
+                    execution_time = (datetime.now() - start_time).total_seconds()
+                    
+                    # Send callback if URL provided
+                    if callback_url:
+                        try:
+                            from core.flow_engine.callback_handler import send_flow_callback_sync
+                            
+                            # Send callback notification
+                            send_flow_callback_sync(
+                                callback_url=callback_url,
+                                flow_id=str(uuid.uuid4()),  # Generate ID for sync execution
+                                status="completed",
+                                result=result,
+                                flow_config=flow_def.config,
+                                execution_time=execution_time
+                            )
+                        except Exception as e:
+                            logger.warning(f"⚠️ Sync callback failed: {str(e)}")
+                    
                     return result
                 
             except Exception as e:
@@ -396,8 +417,28 @@ class FlowAPIGenerator:
                         }
                     }
                 else:
-                    # Sync execution (existing behavior)
+                    # Sync execution with callback support
+                    start_time = datetime.now()
                     result = await self.flow_runner.run_flow(flow_def.name, inputs)
+                    execution_time = (datetime.now() - start_time).total_seconds()
+                    
+                    # Send callback if URL provided
+                    if callback_url:
+                        try:
+                            from core.flow_engine.callback_handler import send_flow_callback_sync
+                            
+                            # Send callback notification
+                            send_flow_callback_sync(
+                                callback_url=callback_url,
+                                flow_id=str(uuid.uuid4()),  # Generate ID for sync execution
+                                status="completed",
+                                result=result,
+                                flow_config=flow_def.config,
+                                execution_time=execution_time
+                            )
+                        except Exception as e:
+                            logger.warning(f"⚠️ Sync callback failed: {str(e)}")
+                    
                     return result
                 
             except Exception as e:

@@ -16,6 +16,7 @@ from .ocr_processor import OCRProcessor
 from .image_handler import ImageHandler
 from .data_combiner import DataCombiner
 from .response_formatter import ResponseFormatter
+from .whisper_processor import WhisperProcessor
 
 __all__ = [
     "BaseExecutor",
@@ -27,5 +28,6 @@ __all__ = [
     "OCRProcessor",
     "ImageHandler",
     "DataCombiner",
-    "ResponseFormatter"
+    "ResponseFormatter",
+    "WhisperProcessor"
 ]

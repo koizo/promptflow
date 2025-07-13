@@ -358,6 +358,10 @@ class FlowRunner:
                                           outputs=result.outputs, completed_at=datetime.now(timezone.utc),
                                           metadata={"execution_time": result.execution_time})
                 logger.info(f"✅ Step {step.name} completed successfully")
+                
+                # Special handling for ResponseFormatter: save result to flow state for callbacks
+                if step.executor == "response_formatter" and result.outputs:
+                    await self._save_response_formatter_result(context.flow_id, result.outputs)
             else:
                 # Save step failure state
                 await self._save_step_state(context.flow_id, step.name, "failed",
@@ -984,6 +988,36 @@ class FlowRunner:
         logger.debug(f"🔧 Reconstructed execution context for {flow_state.flow_id} with {len(flow_state.steps)} steps")
         
         return execution
+    
+    async def _save_response_formatter_result(self, flow_id: str, formatter_outputs: Dict[str, Any]):
+        """
+        Save ResponseFormatter result to flow state for callback usage.
+        
+        Args:
+            flow_id: Flow execution ID
+            formatter_outputs: ResponseFormatter step outputs
+        """
+        if not self.redis_enabled or not self.state_store:
+            return  # Skip if Redis not available
+        
+        try:
+            # Get existing flow state
+            flow_state = await self.state_store.get_flow_state(flow_id)
+            if flow_state:
+                # Store ResponseFormatter result in metadata for callback usage
+                if not flow_state.metadata:
+                    flow_state.metadata = {}
+                
+                flow_state.metadata["response_formatter_result"] = formatter_outputs
+                
+                # Save updated flow state
+                await self.state_store.save_flow_state(flow_state)
+            else:
+                logger.warning(f"Flow state not found for {flow_id}, cannot save ResponseFormatter result")
+                
+        except Exception as e:
+            logger.error(f"Failed to save ResponseFormatter result for {flow_id}: {str(e)}")
+            # Don't raise exception - this should not break flow execution
 
 
 # Global flow runner instance

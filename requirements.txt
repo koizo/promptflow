@@ -14,6 +14,10 @@ langchain-community>=0.0.13  # For document loaders
 transformers>=4.35.0
 torch>=2.1.0
 
+# Speech-to-Text (Whisper)
+openai-whisper>=20231117
+openai>=1.3.0  # For OpenAI Whisper API
+
 # Redis for state management and Celery broker
 redis>=5.0.0
 

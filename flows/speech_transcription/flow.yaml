@@ -1,0 +1,181 @@
+name: "speech_transcription"
+version: "1.0.0"
+description: "Complete speech-to-text transcription flow with LLM analysis"
+
+# Input schema - defines the API parameters
+inputs:
+  - name: "file"
+    type: "file"
+    required: true
+    description: "Audio file to transcribe (MP3, WAV, M4A, AAC, OGG, FLAC, WMA, OPUS)"
+  
+  - name: "language"
+    type: "string"
+    required: false
+    default: "auto"
+    enum: ["auto", "en", "es", "fr", "de", "it", "pt", "ru", "ja", "ko", "zh", "ar", "hi"]
+    description: "Language for transcription or 'auto' for detection"
+  
+  - name: "analysis_type"
+    type: "string"
+    required: false
+    default: "summary"
+    enum: ["summary", "key_points", "action_items", "sentiment", "entities", "custom"]
+    description: "Type of analysis to perform on transcript"
+  
+  - name: "custom_prompt"
+    type: "string"
+    required: false
+    description: "Custom analysis prompt (used when analysis_type is 'custom')"
+  
+  - name: "whisper_provider"
+    type: "string"
+    required: false
+    default: "local"
+    enum: ["local", "openai"]
+    description: "Whisper provider to use"
+  
+  - name: "whisper_model"
+    type: "string"
+    required: false
+    default: "base"
+    enum: ["tiny", "base", "small", "medium", "large"]
+    description: "Whisper model size (local provider only)"
+  
+  - name: "include_timestamps"
+    type: "boolean"
+    required: false
+    default: true
+    description: "Include word-level timestamps in transcription"
+  
+  - name: "llm_model"
+    type: "string"
+    required: false
+    default: "mistral"
+    description: "LLM model to use for transcript analysis"
+  
+  - name: "max_duration"
+    type: "integer"
+    required: false
+    default: 3600
+    description: "Maximum audio duration in seconds (1 hour default)"
+
+# Flow execution steps
+steps:
+  - name: "handle_audio"
+    executor: "file_handler"
+    config:
+      file_content: "{{ inputs.file.content }}"
+      filename: "{{ inputs.file.filename }}"
+      allowed_formats: [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".opus"]
+      max_size: 104857600
+      validate_format: true
+      preserve_temp_files: true
+    description: "Handle audio file upload and validation"
+    
+  - name: "transcribe_speech"
+    executor: "whisper_processor"
+    config:
+      audio_path: "{{ steps.handle_audio.temp_path }}"
+      language: "{{ inputs.language }}"
+      model_size: "{{ inputs.whisper_model }}"
+      provider: "{{ inputs.whisper_provider }}"
+      include_timestamps: "{{ inputs.include_timestamps }}"
+      temperature: 0.0
+    description: "Transcribe audio to text using Whisper"
+    depends_on: ["handle_audio"]
+    
+  - name: "analyze_transcript"
+    executor: "llm_analyzer"
+    config:
+      text: "{{ steps.transcribe_speech.transcript }}"
+      prompt: |
+        {% if inputs.analysis_type == 'summary' %}
+        Please provide a concise summary of the following transcript:
+        {% elif inputs.analysis_type == 'key_points' %}
+        Extract the key points and main topics from the following transcript:
+        {% elif inputs.analysis_type == 'action_items' %}
+        Identify action items, tasks, and decisions from the following transcript:
+        {% elif inputs.analysis_type == 'sentiment' %}
+        Analyze the sentiment and emotional tone of the following transcript:
+        {% elif inputs.analysis_type == 'entities' %}
+        Extract named entities (people, places, organizations, dates) from the following transcript:
+        {% elif inputs.analysis_type == 'custom' %}
+        {{ inputs.custom_prompt }}
+        {% else %}
+        Analyze the following transcript:
+        {% endif %}
+      model: "{{ inputs.llm_model }}"
+      provider: "ollama"
+    description: "Analyze transcript content using LLM"
+    depends_on: ["transcribe_speech"]
+    
+  - name: "format_response"
+    executor: "response_formatter"
+    config:
+      template: "detailed"
+      include_metadata: true
+      include_steps: true
+      custom_fields:
+        flow: "speech_transcription"
+        audio_file: "{{ steps.handle_audio.filename }}"
+        audio_format: "{{ steps.handle_audio.file_extension }}"
+        audio_duration: "{{ steps.transcribe_speech.audio_duration }}"
+        language_detected: "{{ steps.transcribe_speech.language_detected }}"
+        transcript: "{{ steps.transcribe_speech.transcript }}"
+        transcript_length: "{{ steps.transcribe_speech.word_count }}"
+        has_timestamps: "{{ steps.transcribe_speech.has_timestamps }}"
+        analysis: "{{ steps.analyze_transcript.analysis }}"
+        whisper_model: "{{ steps.transcribe_speech.model_used }}"
+        llm_model: "{{ inputs.llm_model }}"
+        analysis_type: "{{ inputs.analysis_type }}"
+    description: "Format final response with transcript and analysis"
+    depends_on: ["analyze_transcript"]
+
+# Flow configuration
+config:
+  execution:
+    mode: "async"              # Enable async execution for audio processing
+    timeout: 1800              # 30 minutes for long audio files
+    retry_count: 2
+    auto_resume: true
+    max_concurrent: 3          # Limit concurrent audio processing
+  
+  callbacks:
+    enabled: true
+  
+  cleanup_temp_files: true     # Clean up audio files after processing
+
+# Flow metadata
+metadata:
+  category: "audio_processing"
+  tags: ["speech-to-text", "transcription", "whisper", "audio-analysis"]
+  author: "AI Inference Platform"
+  created: "2025-07-11"
+  
+  # Supported file formats
+  supported_formats:
+    - ".mp3"
+    - ".wav" 
+    - ".m4a"
+    - ".aac"
+    - ".ogg"
+    - ".flac"
+    - ".wma"
+    - ".opus"
+  
+  # Use cases
+  use_cases:
+    - "Meeting transcription and analysis"
+    - "Podcast content extraction"
+    - "Voice note processing"
+    - "Customer service call analysis"
+    - "Interview transcription"
+    - "Accessibility compliance"
+  
+  # Performance expectations
+  performance:
+    typical_processing_time: "1-3x audio duration"
+    max_file_size: "100MB"
+    max_duration: "1 hour"
+    accuracy: "95%+ for clear audio"

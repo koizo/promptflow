@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y \
     libreoffice \
     pandoc \
     curl \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Tesseract environment variables properly

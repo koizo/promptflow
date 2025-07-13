@@ -14,6 +14,7 @@ from celery import Celery
 from celery.signals import worker_ready, worker_shutdown
 
 from core.flow_engine.flow_runner import flow_runner
+from core.flow_engine.callback_handler import send_flow_callback
 from core.state_store import StateStore
 
 logger = logging.getLogger(__name__)
@@ -115,12 +116,42 @@ def execute_flow_async(self, flow_name: str, inputs: Dict[str, Any], flow_id: st
                 logger.info(f"📞 Callback URL stored for {flow_id}: {callback_url}")
             
             # Execute flow using existing flow runner with Redis state persistence
+            start_time = datetime.now(timezone.utc)
             result = loop.run_until_complete(flow_runner.run_flow(flow_name, inputs))
             logger.info(f"✅ Async execution completed: {flow_id}")
             
-            # TODO: Future Phase - Call callback URL on completion
-            # if callback_url:
-            #     await notify_callback(callback_url, flow_id, "completed", result)
+            # Send callback notification if URL provided
+            if callback_url:
+                try:
+                    # Calculate execution time
+                    execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+                    
+                    # Use execution flow_id from result instead of task flow_id for callback
+                    execution_flow_id = result.get('execution_id', flow_id)
+                    
+                    # Send callback notification using centralized handler
+                    callback_success = loop.run_until_complete(send_flow_callback(
+                        callback_url=callback_url,
+                        flow_id=execution_flow_id,  # Use execution flow_id
+                        status="completed",
+                        result=result,
+                        flow_config={"callbacks": {"enabled": True}},  # Simple config
+                        execution_time=execution_time,
+                        state_store=flow_runner.state_store
+                    ))
+                    
+                    # Update callback status in Redis
+                    try:
+                        if flow_runner.redis_enabled and flow_runner.state_store:
+                            flow_state = loop.run_until_complete(flow_runner.state_store.get_flow_state(flow_id))
+                            if flow_state:
+                                flow_state.callback_status = "sent" if callback_success else "failed"
+                                loop.run_until_complete(flow_runner.state_store.save_flow_state(flow_state))
+                    except Exception as e:
+                        logger.warning(f"⚠️ Failed to update callback status: {e}")
+                        
+                except Exception as e:
+                    logger.error(f"❌ Callback execution failed: {str(e)}")
             
             return result
             
@@ -130,9 +161,49 @@ def execute_flow_async(self, flow_name: str, inputs: Dict[str, Any], flow_id: st
     except Exception as exc:
         logger.error(f"❌ Async execution failed: {flow_id} - {str(exc)}")
         
-        # TODO: Future Phase - Call callback URL on failure
-        # if callback_url:
-        #     await notify_callback(callback_url, flow_id, "failed", str(exc))
+        # Send callback notification for failure if URL provided
+        if callback_url:
+            try:
+                logger.info(f"🔍 FAILURE CALLBACK DEBUG - Using simple config")
+                
+                # Create failure result
+                failure_result = {
+                    "flow": flow_name,
+                    "success": False,
+                    "error": str(exc),
+                    "steps_completed": [],
+                    "steps_failed": []
+                }
+                
+                # Send callback notification using centralized handler
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    callback_success = loop.run_until_complete(send_flow_callback(
+                        callback_url=callback_url,
+                        flow_id=flow_id,
+                        status="failed",
+                        result=failure_result,
+                        flow_config={"callbacks": {"enabled": True}},  # Simple config
+                        execution_time=None,
+                        state_store=flow_runner.state_store
+                    ))
+                    
+                    # Update callback status in Redis
+                    try:
+                        if flow_runner.redis_enabled and flow_runner.state_store:
+                            flow_state = loop.run_until_complete(flow_runner.state_store.get_flow_state(flow_id))
+                            if flow_state:
+                                flow_state.callback_status = "sent" if callback_success else "failed"
+                                loop.run_until_complete(flow_runner.state_store.save_flow_state(flow_state))
+                    except Exception as e:
+                        logger.warning(f"⚠️ Failed to update callback status: {e}")
+                        
+                finally:
+                    loop.close()
+                    
+            except Exception as e:
+                logger.error(f"❌ Failure callback execution failed: {str(e)}")
         
         # Retry with exponential backoff
         raise self.retry(exc=exc, countdown=60, max_retries=3)

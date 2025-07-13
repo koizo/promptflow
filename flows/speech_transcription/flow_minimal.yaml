@@ -1,0 +1,30 @@
+name: "speech_transcription_minimal"
+version: "1.0.0"
+description: "Speech transcription with minimal callback payload"
+
+# Same inputs and steps as main flow...
+inputs:
+  - name: "file"
+    type: "file"
+    required: true
+
+steps:
+  - name: "handle_audio"
+    executor: "file_handler"
+    config:
+      file_content: "{{ inputs.file.content }}"
+      filename: "{{ inputs.file.filename }}"
+      allowed_formats: [".wav", ".mp3"]
+      max_size: 104857600
+      validate_format: true
+      preserve_temp_files: true
+
+config:
+  execution:
+    mode: "async"
+  
+  callbacks:
+    enabled: true
+    results:
+      payload_template: "minimal"  # ← MINIMAL TEMPLATE
+      include_metadata: false

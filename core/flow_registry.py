@@ -188,3 +188,7 @@ class FlowRegistry:
                 }
         
         return results
+
+
+# Global flow registry instance
+flow_registry = FlowRegistry()

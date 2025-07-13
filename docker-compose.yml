@@ -12,6 +12,12 @@ services:
     volumes:
     - ./logs:/app/logs
     - temp_files:/app/temp
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      
   redis:
     image: redis:7-alpine
     ports:
@@ -19,6 +25,12 @@ services:
     volumes:
     - redis_data:/data
     command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      
   celery-worker-ocr_analysis:
     build: .
     command: celery -A celery_app worker --loglevel=info -Q ocr_analysis --concurrency=2
@@ -28,11 +40,33 @@ services:
     - REDIS_URL=redis://redis:6379
     - FLOW_NAME=ocr_analysis
     - MAX_CONCURRENT=2
-    - QUEUE_NAME=ocr_analysis
     - OLLAMA_BASE_URL=http://host.docker.internal:11434
     volumes:
-    - ./logs:/app/logs
     - temp_files:/app/temp
+    healthcheck:
+      test: ["CMD", "celery", "-A", "celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      
+  celery-worker-speech_transcription:
+    build: .
+    command: celery -A celery_app worker --loglevel=info -Q speech_transcription --concurrency=1
+    depends_on:
+    - redis
+    environment:
+    - REDIS_URL=redis://redis:6379
+    - FLOW_NAME=speech_transcription
+    - MAX_CONCURRENT=1
+    - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    volumes:
+    - temp_files:/app/temp
+    healthcheck:
+      test: ["CMD", "celery", "-A", "celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      
   celery-flower:
     build: .
     command: celery -A celery_app flower --port=5555
@@ -42,10 +76,16 @@ services:
     - redis
     environment:
     - REDIS_URL=redis://redis:6379
-    - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5555"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 volumes:
-  redis_data: {}
-  temp_files: {}
+  redis_data:
+  temp_files:
+
 networks:
   default:
     name: ai-inference-platform

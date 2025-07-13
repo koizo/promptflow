@@ -1,0 +1,123 @@
+# YAML-Configurable Callback Examples for Speech Transcription
+
+# Example 1: Minimal Callback (just success status)
+minimal_callback:
+  callbacks:
+    enabled: true
+    results:
+      base_fields:
+        flow_id: true
+        status: true
+        success: true
+        timestamp: false
+        execution_time: false
+
+# Example 2: Transcript Only (for simple integrations)
+transcript_only:
+  callbacks:
+    enabled: true
+    results:
+      base_fields:
+        flow_id: true
+        status: true
+        success: true
+      flow_fields:
+        transcript: "{{ steps.transcribe_speech.transcript }}"
+        language: "{{ steps.transcribe_speech.language_detected }}"
+
+# Example 3: Analysis Focus (for AI/ML pipelines)
+analysis_focus:
+  callbacks:
+    enabled: true
+    results:
+      base_fields:
+        flow_id: true
+        status: true
+        success: true
+        execution_time: true
+      flow_fields:
+        transcript: "{{ steps.transcribe_speech.transcript }}"
+        analysis: "{{ steps.analyze_transcript.analysis }}"
+        analysis_type: "{{ inputs.analysis_type }}"
+        llm_model: "{{ inputs.llm_model }}"
+        confidence: "{{ steps.transcribe_speech.confidence }}"
+      metadata_fields:
+        enabled: true
+        fields:
+          processing_time: "{{ execution_time }}"
+          word_count: "{{ steps.transcribe_speech.word_count }}"
+
+# Example 4: Full Audit Trail (for compliance/logging)
+full_audit:
+  callbacks:
+    enabled: true
+    results:
+      base_fields:
+        flow_id: true
+        status: true
+        success: true
+        timestamp: true
+        execution_time: true
+      flow_fields:
+        audio_file: "{{ steps.handle_audio.filename }}"
+        audio_format: "{{ steps.handle_audio.file_extension }}"
+        audio_duration: "{{ steps.transcribe_speech.audio_duration }}"
+        language_detected: "{{ steps.transcribe_speech.language_detected }}"
+        transcript: "{{ steps.transcribe_speech.transcript }}"
+        transcript_length: "{{ steps.transcribe_speech.word_count }}"
+        whisper_model: "{{ steps.transcribe_speech.model_used }}"
+        llm_model: "{{ inputs.llm_model }}"
+        analysis_type: "{{ inputs.analysis_type }}"
+        analysis: "{{ steps.analyze_transcript.analysis }}"
+      metadata_fields:
+        enabled: true
+        fields:
+          steps_completed: "{{ steps_completed }}"
+          steps_failed: "{{ steps_failed }}"
+          success_rate: "{{ execution_summary.success_rate }}"
+          started_at: "{{ execution_summary.started_at }}"
+
+# Example 5: Filtered Results (exclude sensitive data)
+filtered_results:
+  callbacks:
+    enabled: true
+    results:
+      base_fields:
+        flow_id: true
+        status: true
+        success: true
+      flow_fields:
+        transcript: "{{ steps.transcribe_speech.transcript }}"
+        analysis: "{{ steps.analyze_transcript.analysis }}"
+        language_detected: "{{ steps.transcribe_speech.language_detected }}"
+        audio_duration: "{{ steps.transcribe_speech.audio_duration }}"
+        whisper_model: "{{ steps.transcribe_speech.model_used }}"
+        llm_model: "{{ inputs.llm_model }}"
+        # Note: Excludes filename and other potentially sensitive data
+      field_filter:
+        mode: "include"
+        fields:
+          - "transcript"
+          - "analysis"
+          - "language_detected"
+          - "audio_duration"
+
+# Example 6: Error-Only Callbacks (for monitoring)
+error_monitoring:
+  callbacks:
+    enabled: true
+    results:
+      base_fields:
+        flow_id: true
+        status: true
+        success: true
+        timestamp: true
+      # Only send data on failures
+      flow_fields:
+        error_details: "{{ error }}"
+        failed_step: "{{ steps_failed }}"
+      metadata_fields:
+        enabled: true
+        fields:
+          retry_count: "{{ retry_count }}"
+          execution_time: "{{ execution_time }}"
