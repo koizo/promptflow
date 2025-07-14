@@ -5,8 +5,10 @@ Reusable executor for combining and merging results from multiple flow steps.
 Supports various combination strategies and data transformation operations.
 """
 
-from typing import Dict, Any, List, Union
+from typing import Dict, Any, List, Union, Optional
 import logging
+import json
+from datetime import datetime, timezone
 
 from .base_executor import BaseExecutor, ExecutionResult, FlowContext
 
@@ -22,293 +24,299 @@ class DataCombiner(BaseExecutor):
     """
     
     def __init__(self, name: str = None):
-        super().__init__(name)
+        super().__init__(name or "data_combiner")
     
     async def execute(self, context: FlowContext, config: Dict[str, Any]) -> ExecutionResult:
         """
         Combine data from multiple sources.
         
-        Config parameters:
-        - sources (required): List of data sources to combine
-        - strategy (optional): Combination strategy ('merge', 'concat', 'join', 'custom')
-        - output_key (optional): Key name for combined output (default: 'combined')
-        - separator (optional): Separator for join strategy (default: '\n\n')
-        - merge_strategy (optional): How to handle key conflicts ('overwrite', 'keep_first', 'combine')
+        Args:
+            context: Flow execution context
+            config: Configuration containing:
+                - sources: List of step names or direct values to combine
+                - strategy: Combination strategy ('merge', 'concat', 'join', 'structured')
+                - output_key: Key name for the combined result
+                - join_separator: Separator for text joining (default: ' ')
+                - merge_strategy: How to handle conflicts ('overwrite', 'keep_first', 'combine')
+                - include_metadata: Whether to include source metadata
+                - transform: Optional transformation rules
+        
+        Returns:
+            ExecutionResult with combined data
         """
         try:
+            # Validate required parameters
             sources = config.get('sources', [])
             if not sources:
                 return ExecutionResult(
                     success=False,
-                    error="sources list is required for data combination"
+                    error="No sources specified for data combination"
                 )
             
             strategy = config.get('strategy', 'merge')
-            output_key = config.get('output_key', 'combined')
-            separator = config.get('separator', '\n\n')
-            merge_strategy = config.get('merge_strategy', 'overwrite')
+            output_key = config.get('output_key', 'combined_result')
             
-            self.logger.info(f"Combining {len(sources)} sources using {strategy} strategy")
+            # Collect data from sources
+            source_data = []
+            metadata = {}
             
-            # Resolve sources to actual data
-            resolved_sources = []
             for source in sources:
-                resolved_data = self._resolve_source(source, context)
-                if resolved_data is not None:
-                    resolved_sources.append(resolved_data)
+                if isinstance(source, str):
+                    # Reference to a previous step
+                    if source in context.step_results:
+                        step_result = context.step_results[source]
+                        if hasattr(step_result, 'outputs'):
+                            source_data.append(step_result.outputs)
+                            metadata[source] = {
+                                'type': 'step_result',
+                                'success': step_result.success,
+                                'timestamp': getattr(step_result, 'timestamp', None)
+                            }
+                        else:
+                            source_data.append(step_result)
+                            metadata[source] = {'type': 'raw_result'}
+                    else:
+                        logger.warning(f"Step '{source}' not found in context")
+                        continue
+                else:
+                    # Direct value
+                    source_data.append(source)
+                    metadata[f'direct_{len(metadata)}'] = {'type': 'direct_value'}
             
-            if not resolved_sources:
+            if not source_data:
                 return ExecutionResult(
                     success=False,
-                    error="No valid data sources found to combine"
+                    error="No valid source data found for combination"
                 )
             
             # Apply combination strategy
-            if strategy == 'merge':
-                combined = self._merge_dictionaries(resolved_sources, merge_strategy)
-            elif strategy == 'concat':
-                combined = self._concatenate_lists(resolved_sources)
-            elif strategy == 'join':
-                combined = self._join_text(resolved_sources, separator)
-            elif strategy == 'custom':
-                combined = self._custom_combination(resolved_sources, config)
-            else:
-                return ExecutionResult(
-                    success=False,
-                    error=f"Unknown combination strategy: {strategy}"
-                )
+            combined_result = await self._apply_strategy(
+                source_data, strategy, config
+            )
+            
+            # Prepare output
+            outputs = {output_key: combined_result}
+            
+            # Include metadata if requested
+            if config.get('include_metadata', False):
+                outputs['combination_metadata'] = {
+                    'sources_count': len(source_data),
+                    'strategy': strategy,
+                    'timestamp': datetime.now(timezone.utc).isoformat(),
+                    'source_info': metadata
+                }
+            
+            # Apply transformations if specified
+            if 'transform' in config:
+                outputs = await self._apply_transformations(outputs, config['transform'])
             
             return ExecutionResult(
                 success=True,
-                outputs={
-                    output_key: combined,
-                    "sources_combined": len(resolved_sources),
-                    "combination_strategy": strategy
-                },
-                metadata={
-                    "combination_operation": strategy,
-                    "sources_processed": len(resolved_sources),
-                    "output_type": type(combined).__name__
-                }
+                outputs=outputs
             )
             
         except Exception as e:
-            self.logger.error(f"Data combination failed: {str(e)}", exc_info=True)
+            logger.error(f"Error in DataCombiner execution: {str(e)}")
             return ExecutionResult(
                 success=False,
                 error=f"Data combination failed: {str(e)}"
             )
     
-    def _resolve_source(self, source: Any, context: FlowContext) -> Any:
-        """Resolve a source reference to actual data."""
-        if isinstance(source, str):
-            # Handle template-like references
-            if source.startswith('steps.'):
-                # Extract step name and optional key
-                parts = source.split('.')
-                if len(parts) >= 2:
-                    step_name = parts[1]
-                    if step_name in context.step_results:
-                        result = context.step_results[step_name]
-                        if hasattr(result, 'outputs'):
-                            data = result.outputs
-                        else:
-                            data = result
-                        
-                        # Navigate to nested key if specified
-                        for key in parts[2:]:
-                            if isinstance(data, dict) and key in data:
-                                data = data[key]
-                            else:
-                                return None
-                        return data
-            elif source.startswith('inputs.'):
-                # Extract input value
-                parts = source.split('.')
-                if len(parts) >= 2:
-                    input_key = parts[1]
-                    if input_key in context.inputs:
-                        data = context.inputs[input_key]
-                        
-                        # Navigate to nested key if specified
-                        for key in parts[2:]:
-                            if isinstance(data, dict) and key in data:
-                                data = data[key]
-                            else:
-                                return None
-                        return data
-            else:
-                # Return string as-is
-                return source
+    async def _apply_strategy(self, source_data: List[Any], strategy: str, config: Dict[str, Any]) -> Any:
+        """Apply the specified combination strategy."""
         
-        # Return data as-is for non-string sources
-        return source
+        if strategy == 'merge':
+            return await self._merge_strategy(source_data, config)
+        elif strategy == 'concat':
+            return await self._concat_strategy(source_data, config)
+        elif strategy == 'join':
+            return await self._join_strategy(source_data, config)
+        elif strategy == 'structured':
+            return await self._structured_strategy(source_data, config)
+        elif strategy == 'aggregate':
+            return await self._aggregate_strategy(source_data, config)
+        else:
+            raise ValueError(f"Unknown combination strategy: {strategy}")
     
-    def _merge_dictionaries(self, sources: List[Any], merge_strategy: str) -> Dict[str, Any]:
-        """Merge multiple dictionaries."""
+    async def _merge_strategy(self, source_data: List[Any], config: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge dictionaries with conflict resolution."""
+        merge_strategy = config.get('merge_strategy', 'overwrite')
         result = {}
         
-        for source in sources:
-            if not isinstance(source, dict):
-                # Convert non-dict sources to dict
-                if hasattr(source, '__dict__'):
-                    source = source.__dict__
-                else:
-                    source = {"value": source}
-            
-            for key, value in source.items():
-                if key in result:
-                    # Handle key conflicts
-                    if merge_strategy == 'overwrite':
+        for data in source_data:
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    if key in result:
+                        if merge_strategy == 'overwrite':
+                            result[key] = value
+                        elif merge_strategy == 'keep_first':
+                            pass  # Keep existing value
+                        elif merge_strategy == 'combine':
+                            if isinstance(result[key], list) and isinstance(value, list):
+                                result[key].extend(value)
+                            elif isinstance(result[key], str) and isinstance(value, str):
+                                result[key] = f"{result[key]} {value}"
+                            else:
+                                result[key] = [result[key], value]
+                    else:
                         result[key] = value
-                    elif merge_strategy == 'keep_first':
-                        pass  # Keep existing value
-                    elif merge_strategy == 'combine':
-                        # Combine values into list
-                        if not isinstance(result[key], list):
-                            result[key] = [result[key]]
-                        if isinstance(value, list):
-                            result[key].extend(value)
-                        else:
-                            result[key].append(value)
-                else:
-                    result[key] = value
+            else:
+                # Non-dict data, add with index
+                result[f'source_{len([k for k in result.keys() if k.startswith("source_")])}'] = data
         
         return result
     
-    def _concatenate_lists(self, sources: List[Any]) -> List[Any]:
-        """Concatenate multiple lists or convert to list."""
+    async def _concat_strategy(self, source_data: List[Any], config: Dict[str, Any]) -> List[Any]:
+        """Concatenate lists or convert to list and concatenate."""
         result = []
         
-        for source in sources:
-            if isinstance(source, list):
-                result.extend(source)
-            elif isinstance(source, dict):
-                # Add dictionary values to list
-                result.extend(source.values())
+        for data in source_data:
+            if isinstance(data, list):
+                result.extend(data)
             else:
-                # Add single item to list
-                result.append(source)
+                result.append(data)
         
         return result
     
-    def _join_text(self, sources: List[Any], separator: str) -> str:
-        """Join multiple text sources."""
+    async def _join_strategy(self, source_data: List[Any], config: Dict[str, Any]) -> str:
+        """Join data as text with separator."""
+        separator = config.get('join_separator', ' ')
         text_parts = []
         
-        for source in sources:
-            if isinstance(source, str):
-                text_parts.append(source)
-            elif isinstance(source, dict):
-                # Extract text from common keys
-                for key in ['text', 'content', 'message', 'analysis', 'result']:
-                    if key in source and isinstance(source[key], str):
-                        text_parts.append(source[key])
-                        break
+        for data in source_data:
+            if isinstance(data, str):
+                text_parts.append(data)
+            elif isinstance(data, dict):
+                # Extract text fields or convert to JSON
+                if 'text' in data:
+                    text_parts.append(str(data['text']))
+                elif 'content' in data:
+                    text_parts.append(str(data['content']))
                 else:
-                    # Convert dict to string representation
-                    text_parts.append(str(source))
+                    text_parts.append(json.dumps(data, ensure_ascii=False))
             else:
-                # Convert to string
-                text_parts.append(str(source))
+                text_parts.append(str(data))
         
         return separator.join(text_parts)
     
-    def _custom_combination(self, sources: List[Any], config: Dict[str, Any]) -> Any:
-        """Apply custom combination logic."""
-        # This can be extended for specific custom combination needs
-        custom_logic = config.get('custom_logic', 'default')
+    async def _structured_strategy(self, source_data: List[Any], config: Dict[str, Any]) -> Dict[str, Any]:
+        """Create structured output with labeled sections."""
+        structure_template = config.get('structure_template', {})
+        result = {}
         
-        if custom_logic == 'first_non_empty':
-            # Return first non-empty source
-            for source in sources:
-                if source:
-                    return source
-            return None
-        
-        elif custom_logic == 'max_length':
-            # Return source with maximum length
-            max_source = None
-            max_length = 0
-            
-            for source in sources:
-                length = len(str(source))
-                if length > max_length:
-                    max_length = length
-                    max_source = source
-            
-            return max_source
-        
-        elif custom_logic == 'structured':
-            # Create structured output with all sources
-            return {
-                f"source_{i}": source 
-                for i, source in enumerate(sources)
-            }
-        
+        # If template provided, use it
+        if structure_template:
+            for key, source_ref in structure_template.items():
+                if isinstance(source_ref, int) and 0 <= source_ref < len(source_data):
+                    result[key] = source_data[source_ref]
+                elif isinstance(source_ref, str):
+                    # Could be a path like "0.text" or "1.sentiment"
+                    try:
+                        parts = source_ref.split('.')
+                        data = source_data[int(parts[0])]
+                        for part in parts[1:]:
+                            if isinstance(data, dict):
+                                data = data.get(part)
+                            else:
+                                break
+                        result[key] = data
+                    except (ValueError, IndexError, KeyError):
+                        result[key] = None
         else:
-            # Default: return all sources as list
-            return sources
-    
-    def get_required_config_keys(self) -> List[str]:
-        """Required configuration keys."""
-        return ["sources"]
-    
-    def get_optional_config_keys(self) -> List[str]:
-        """Optional configuration keys."""
-        return [
-            "strategy",
-            "output_key",
-            "separator",
-            "merge_strategy",
-            "custom_logic"
-        ]
-    
-    def validate_config(self, config: Dict[str, Any]) -> None:
-        """Validate executor configuration."""
-        super().validate_config(config)
+            # Default structure
+            for i, data in enumerate(source_data):
+                result[f'source_{i}'] = data
         
-        # Validate sources is list
-        sources = config.get('sources', [])
-        if not isinstance(sources, list):
-            raise ValueError("sources must be a list")
-        
-        # Validate strategy
-        if 'strategy' in config:
-            strategy = config['strategy']
-            valid_strategies = ['merge', 'concat', 'join', 'custom']
-            if strategy not in valid_strategies:
-                raise ValueError(f"strategy must be one of: {valid_strategies}")
-        
-        # Validate merge_strategy
-        if 'merge_strategy' in config:
-            merge_strategy = config['merge_strategy']
-            valid_merge_strategies = ['overwrite', 'keep_first', 'combine']
-            if merge_strategy not in valid_merge_strategies:
-                raise ValueError(f"merge_strategy must be one of: {valid_merge_strategies}")
+        return result
     
-    def get_info(self) -> Dict[str, Any]:
-        """Get executor information."""
-        info = super().get_info()
-        info.update({
-            "capabilities": [
-                "Merge multiple dictionaries",
-                "Concatenate lists and arrays",
-                "Join text with custom separators",
-                "Custom combination strategies",
-                "Conflict resolution for duplicate keys",
-                "Data type conversion and normalization"
-            ],
-            "combination_strategies": [
-                "merge - Merge dictionaries",
-                "concat - Concatenate lists",
-                "join - Join text with separator",
-                "custom - Apply custom logic"
-            ],
-            "merge_strategies": [
-                "overwrite - Later values overwrite earlier ones",
-                "keep_first - Keep first occurrence of each key",
-                "combine - Combine conflicting values into lists"
-            ]
-        })
-        return info
+    async def _aggregate_strategy(self, source_data: List[Any], config: Dict[str, Any]) -> Dict[str, Any]:
+        """Aggregate numeric data with statistics."""
+        aggregations = config.get('aggregations', ['count', 'sum'])
+        result = {}
+        
+        # Flatten numeric values
+        numeric_values = []
+        text_values = []
+        
+        for data in source_data:
+            if isinstance(data, (int, float)):
+                numeric_values.append(data)
+            elif isinstance(data, dict):
+                for value in data.values():
+                    if isinstance(value, (int, float)):
+                        numeric_values.append(value)
+                    elif isinstance(value, str):
+                        text_values.append(value)
+            elif isinstance(data, str):
+                text_values.append(data)
+        
+        # Calculate aggregations
+        if numeric_values and 'count' in aggregations:
+            result['count'] = len(numeric_values)
+        if numeric_values and 'sum' in aggregations:
+            result['sum'] = sum(numeric_values)
+        if numeric_values and 'avg' in aggregations:
+            result['average'] = sum(numeric_values) / len(numeric_values)
+        if numeric_values and 'min' in aggregations:
+            result['minimum'] = min(numeric_values)
+        if numeric_values and 'max' in aggregations:
+            result['maximum'] = max(numeric_values)
+        
+        if text_values:
+            result['text_count'] = len(text_values)
+            if 'concat_text' in aggregations:
+                result['combined_text'] = ' '.join(text_values)
+        
+        result['total_sources'] = len(source_data)
+        
+        return result
+    
+    async def _apply_transformations(self, outputs: Dict[str, Any], transform_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply transformation rules to the outputs."""
+        
+        # Rename keys
+        if 'rename' in transform_config:
+            for old_key, new_key in transform_config['rename'].items():
+                if old_key in outputs:
+                    outputs[new_key] = outputs.pop(old_key)
+        
+        # Filter keys
+        if 'include_only' in transform_config:
+            allowed_keys = transform_config['include_only']
+            outputs = {k: v for k, v in outputs.items() if k in allowed_keys}
+        
+        if 'exclude' in transform_config:
+            excluded_keys = transform_config['exclude']
+            outputs = {k: v for k, v in outputs.items() if k not in excluded_keys}
+        
+        # Format values
+        if 'format' in transform_config:
+            for key, format_rule in transform_config['format'].items():
+                if key in outputs:
+                    if format_rule == 'json':
+                        outputs[key] = json.dumps(outputs[key], ensure_ascii=False, indent=2)
+                    elif format_rule == 'upper':
+                        if isinstance(outputs[key], str):
+                            outputs[key] = outputs[key].upper()
+                    elif format_rule == 'lower':
+                        if isinstance(outputs[key], str):
+                            outputs[key] = outputs[key].lower()
+        
+        return outputs
+    
+    def get_required_config(self) -> List[str]:
+        """Return list of required configuration keys."""
+        return ['sources']
+    
+    def get_optional_config(self) -> Dict[str, Any]:
+        """Return dictionary of optional configuration keys with defaults."""
+        return {
+            'strategy': 'merge',
+            'output_key': 'combined_result',
+            'join_separator': ' ',
+            'merge_strategy': 'overwrite',
+            'include_metadata': False,
+            'transform': {},
+            'structure_template': {},
+            'aggregations': ['count', 'sum']
+        }

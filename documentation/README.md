@@ -17,6 +17,7 @@ Detailed guides for each AI feature available in the platform:
 - **[Sentiment Analysis](ai-capabilities/sentiment-analysis.md)** - Analyze text sentiment with emotion detection and aspect analysis
 - **[Image Classification](ai-capabilities/image-classification.md)** - Classify images using multiple model architectures
 - **[LLM Analysis](ai-capabilities/llm-analysis.md)** - Advanced text analysis using Large Language Models with custom prompts
+- **[Data Combination](ai-capabilities/data-combination.md)** - Combine and merge results from multiple flow steps with advanced strategies
 
 ### Flow Development
 Learn how to create and configure AI workflows:

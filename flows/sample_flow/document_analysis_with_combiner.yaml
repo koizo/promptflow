@@ -1,0 +1,123 @@
+name: "document_analysis_with_combiner"
+description: "Complete document analysis pipeline with data combination"
+version: "1.0"
+
+inputs:
+  - name: "file"
+    type: "file"
+    required: true
+    description: "Document file to analyze (PDF, image, etc.)"
+  - name: "analysis_prompt"
+    type: "string"
+    required: false
+    default: "Analyze this document and provide key insights"
+    description: "Custom analysis prompt for LLM processing"
+
+steps:
+  # Step 1: Extract text from document using OCR
+  - name: "extract_text"
+    executor: "ocr_processor"
+    config:
+      image_path: "{{ inputs.file }}"
+      languages: ["en", "es", "fr"]
+      confidence_threshold: 0.7
+      clean_text: true
+    
+  # Step 2: Analyze sentiment of extracted text
+  - name: "analyze_sentiment"
+    executor: "sentiment_analyzer"
+    config:
+      text: "{{ steps.extract_text.text }}"
+      analysis_type: "comprehensive"
+      provider: "huggingface"
+    
+  # Step 3: Perform LLM analysis on the text
+  - name: "llm_analysis"
+    executor: "llm_analyzer"
+    config:
+      text: "{{ steps.extract_text.text }}"
+      prompt: "{{ inputs.analysis_prompt }}"
+      max_tokens: 500
+      temperature: 0.3
+    
+  # Step 4: Combine all results into structured output
+  - name: "combine_results"
+    executor: "data_combiner"
+    config:
+      sources: ["extract_text", "analyze_sentiment", "llm_analysis"]
+      strategy: "structured"
+      structure_template:
+        # Extract specific fields from each step
+        extracted_text: "0.text"
+        text_confidence: "0.confidence"
+        text_language: "0.language"
+        sentiment_score: "1.sentiment"
+        sentiment_confidence: "1.confidence"
+        emotions: "1.emotions"
+        llm_summary: "2.summary"
+        llm_key_points: "2.key_points"
+        llm_recommendations: "2.recommendations"
+      output_key: "document_analysis"
+      include_metadata: true
+    
+  # Step 5: Create executive summary by combining key information
+  - name: "create_summary"
+    executor: "data_combiner"
+    config:
+      sources: ["combine_results"]
+      strategy: "join"
+      join_separator: "\n\n"
+      output_key: "executive_summary"
+      transform:
+        format:
+          executive_summary: "upper"
+
+outputs:
+  - name: "analysis_result"
+    source: "combine_results.document_analysis"
+    description: "Complete structured analysis of the document"
+  
+  - name: "summary"
+    source: "create_summary.executive_summary"
+    description: "Executive summary of the analysis"
+  
+  - name: "metadata"
+    source: "combine_results.combination_metadata"
+    description: "Processing metadata and statistics"
+
+config:
+  execution:
+    mode: "async"
+    timeout: 300
+    retry_attempts: 2
+  
+  error_handling:
+    continue_on_error: false
+    fallback_strategy: "partial_results"
+  
+  caching:
+    enabled: true
+    ttl: 3600
+
+tags:
+  - "document-processing"
+  - "multi-modal"
+  - "data-combination"
+  - "enterprise"
+
+examples:
+  - name: "Invoice Analysis"
+    description: "Analyze an invoice document"
+    inputs:
+      file: "sample_invoice.pdf"
+      analysis_prompt: "Extract invoice details, identify key amounts, and assess document authenticity"
+    expected_outputs:
+      - "Structured invoice data with OCR text, sentiment analysis, and LLM insights"
+  
+  - name: "Contract Review"
+    description: "Review a legal contract"
+    inputs:
+      file: "contract.pdf"
+      analysis_prompt: "Identify key terms, obligations, risks, and provide recommendations"
+    expected_outputs:
+      - "Contract analysis with extracted terms and legal insights"

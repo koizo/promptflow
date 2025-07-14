@@ -115,6 +115,17 @@ curl -X POST "http://localhost:8000/api/v1/document-analysis/execute" \
   -F "analysis_prompt=Summarize key points and provide recommendations"
 ```
 
+### 🔗 Data Combination
+Combine and merge results from multiple flow steps with advanced strategies including merge, concatenation, structured templates, and statistical aggregation.
+
+**[📖 Full Documentation](documentation/ai-capabilities/data-combination.md)**
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/combine-results/execute" \
+  -H "Content-Type: application/json" \
+  -d '{"sources": ["step1", "step2"], "strategy": "structured", "structure_template": {"text": "0.text", "sentiment": "1.sentiment"}}'
+```
+
 ## 📝 Creating Flows
 
 Define AI workflows using simple YAML configuration:
@@ -220,8 +231,8 @@ open http://localhost:8000/docs
 # Flow catalog
 curl http://localhost:8000/catalog
 
-# Run tests
-pytest tests/ -v
+# Run comprehensive test suite
+python run_all_tests.py
 ```
 
 ## 📁 Project Structure
